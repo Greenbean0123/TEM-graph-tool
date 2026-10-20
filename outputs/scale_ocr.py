@@ -159,12 +159,15 @@ def read_scale_label(array, region):
         try:
             nm, text = parse_scale_text(lines)
             # Vision often reports 0.5 for short scientific labels despite an
-            # exact text match. Require agreement with a second polarity pass.
+            # exact text match. Require agreement at a second rendering scale.
             if any(item.get('confidence', 1) < .8 for item in lines):
                 alternate = Path(folder)/'original_label_check.png'
-                ImageOps.invert(patch).save(alternate)
+                patch.resize((round(patch.width*.85), round(patch.height*.85)), Image.Resampling.LANCZOS).save(alternate)
                 check_lines = mac_text(alternate) if sys.platform == 'darwin' else windows_text(alternate)
-                check_nm, _ = parse_scale_text(check_lines)
+                try:
+                    check_nm, _ = parse_scale_text(check_lines)
+                except ValueError as e:
+                    raise ValueError(f'{e} Second pass: {check_lines!r}') from e
                 if nm != check_nm:
                     raise ValueError('Two OCR passes disagree; enter the original nm label manually')
         except ValueError as e:
