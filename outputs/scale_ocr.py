@@ -17,7 +17,7 @@ def parse_scale_text(lines):
     for item in lines:
         text = item['text']
         confidence = item.get('confidence')
-        if confidence is not None and confidence < .8:
+        if confidence is not None and confidence < .5:
             continue
         for match in re.finditer(r'(?<![\w.])(\d+(?:[.,]\d+)?)\s*(nm|[uµμ]m)(?!\w)', text, re.I):
             number = float(match[1].replace(',', '.'))
@@ -156,8 +156,17 @@ def read_scale_label(array, region):
             engine = 'Windows OCR'
         else:
             raise ValueError('Automatic label reading requires macOS or Windows; enter Original label (nm) manually')
-    try:
-        nm, text = parse_scale_text(lines)
-    except ValueError as e:
-        raise ValueError(f'{e} OCR read: {lines!r}') from e
+        try:
+            nm, text = parse_scale_text(lines)
+            # Vision often reports 0.5 for short scientific labels despite an
+            # exact text match. Require agreement with a second polarity pass.
+            if any(item.get('confidence', 1) < .8 for item in lines):
+                alternate = Path(folder)/'original_label_check.png'
+                ImageOps.invert(patch).save(alternate)
+                check_lines = mac_text(alternate) if sys.platform == 'darwin' else windows_text(alternate)
+                check_nm, _ = parse_scale_text(check_lines)
+                if nm != check_nm:
+                    raise ValueError('Two OCR passes disagree; enter the original nm label manually')
+        except ValueError as e:
+            raise ValueError(f'{e} OCR read: {lines!r}') from e
     return nm, text, engine

@@ -30,6 +30,7 @@ class ScaleOCRTests(unittest.TestCase):
     def test_units_and_ambiguity(self):
         for text, expected in [('50 nm', 50), ('200nm', 200), ('0.5 µm', 500), ('1 um', 1000)]:
             self.assertEqual(scale_ocr.parse_scale_text([{'text': text, 'confidence': .99}])[0], expected)
+        self.assertEqual(scale_ocr.parse_scale_text([{'text': '50 nm', 'confidence': .5}])[0], 50)
         for lines in [[{'text': '50 nm', 'confidence': .2}], [{'text': '50'}], [{'text': '50 nm / 200 nm'}], [{'text': '500 m'}]]:
             with self.assertRaises(ValueError):
                 scale_ocr.parse_scale_text(lines)
