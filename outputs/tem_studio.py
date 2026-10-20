@@ -65,7 +65,10 @@ class TEMStudio(tk.Tk):
         self.title(f'{APP_NAME} {__version__} · Scale Bar & Size Distribution')
         self.tk.call('tk', 'appname', APP_NAME)
         self.enable_updates = enable_updates
-        self.geometry('1400x920')
+        screen_width, screen_height = self.winfo_screenwidth(), self.winfo_screenheight()
+        window_width = min(1400, max(900, screen_width-80))
+        window_height = min(920, max(500, screen_height-100))
+        self.geometry(f'{window_width}x{window_height}+{max(0, (screen_width-window_width)//2)}+{max(0, (screen_height-window_height)//2)}')
         self.minsize(900, 500)
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.temp = tempfile.TemporaryDirectory(prefix='tem_studio_')
