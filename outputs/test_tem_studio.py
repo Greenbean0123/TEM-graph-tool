@@ -13,6 +13,21 @@ from tem_studio import TEMStudio
 
 
 class TEMTests(unittest.TestCase):
+    def test_inset_samples_clean_pixels_and_recalibrates(self):
+        from PIL import Image
+        from tem_inset import compose
+        source = Image.fromarray(np.tile(np.arange(256, dtype=np.uint8), (512, 2)))
+        annotated = Image.new('L', source.size, 0)
+        for width in (160, 240):
+            out, r = compose(annotated, source, .5, (20, 20, 100, 100),
+                             width, (250, 20), bar_nm=10)
+            self.assertEqual(r['magnification'], width/80)
+            self.assertEqual(r['bar_pixels'], round(10/(.5/(width/80))))
+            self.assertLessEqual(r['pixel_rounding_error'], .5)
+            expected = source.crop((20, 20, 100, 100)).resize((width, width), Image.Resampling.LANCZOS)
+            self.assertEqual(out.getpixel((270, 40)), expected.getpixel((20, 20)))
+            self.assertEqual(out.getpixel((0, 511)), 0)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.folder = Path(self.tmp.name)
@@ -88,6 +103,20 @@ class TEMTests(unittest.TestCase):
             app.refresh_tem(quiet=True)
             x0, y0, x1, y1 = app.report['bar_box']
             self.assertTrue((np.asarray(app.preview_image)[y0:y1, x0:x1] == 0).all())
+            app.tool('inset')
+            scale, ox, oy = app.transform
+            app.press(SimpleNamespace(x=ox+30*scale, y=oy+30*scale))
+            app.release(SimpleNamespace(x=ox+130*scale, y=oy+130*scale))
+            self.assertIn('inset', app.report)
+            box = app.report['inset']['box']
+            app.press(SimpleNamespace(x=ox+(box[0]+30)*scale, y=oy+(box[1]+30)*scale))
+            app.release(SimpleNamespace(x=ox+(box[0]+10)*scale, y=oy+(box[1]+50)*scale))
+            self.assertEqual(app.mode.get(), 'move')
+            self.assertLessEqual(app.report['inset']['pixel_rounding_error'], .5)
+            args = app.get_args(out=self.folder)
+            r = core.redraw(one, args)
+            self.assertIn('inset', r)
+            self.assertTrue((self.folder/'one_scalebar.png').exists())
         finally:
             app.close()
 

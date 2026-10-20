@@ -134,6 +134,21 @@ class TEMStudio(tk.Tk):
         for tab, label in zip(self.scroll_tabs, ('Data & calibration', 'Scale bar', 'Distribution')):
             tabs.add(tab, text=label)
         data, layout, dist = [tab.content for tab in self.scroll_tabs]
+        inset_tab = ScrollableTab(tabs)
+        self.scroll_tabs.append(inset_tab)
+        tabs.add(inset_tab, text='Inset zoom')
+        inset = inset_tab.content
+        self.field(inset, 'Show inset', 'inset_enabled', 'No', ['No', 'Yes'])
+        ttk.Button(inset, text='Select source region on image', command=lambda: self.tool('inset')).pack(fill='x', pady=8)
+        self.field(inset, 'Source box x0,y0,x1,y1', 'inset_roi')
+        self.field(inset, 'Inset width (px)', 'inset_width', '500')
+        self.field(inset, 'Inset X (px; optional)', 'inset_x')
+        self.field(inset, 'Inset Y (px; optional)', 'inset_y')
+        self.field(inset, 'Border / scale color', 'inset_color', 'white', ['white', 'black'])
+        self.field(inset, 'Border thickness (px)', 'inset_border', '4')
+        self.field(inset, 'Connector line', 'inset_connector', 'Yes', ['Yes', 'No'])
+        self.field(inset, 'Inset bar nm (blank=auto)', 'inset_bar_nm')
+        ttk.Label(inset, text='Select a region, then drag the inset to move it. Drag its lower-right corner to resize. Aspect ratio is preserved; its scale bar updates automatically. All dimensions use original image pixels.', wraplength=375).pack(anchor='w', pady=12)
         updates = ScrollableTab(tabs)
         self.scroll_tabs.append(updates)
         tabs.add(updates, text='Updates')
@@ -280,7 +295,9 @@ class TEMStudio(tk.Tk):
         defaults = dict(cal_mode='Auto measure bar', original_bar_nm='', original_unit='nm', match_original='true', original_bar_px='', nm_per_pixel='',
                         erase_box='', background='Auto', remove_footer='Yes', original_corner='bottom-right', bar_nm='', target_width='500',
                         color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
-                        label_position='above', gap='12', bar_x='', bar_y='')
+                        label_position='above', gap='12', bar_x='', bar_y='',
+                        inset_enabled='No', inset_roi='', inset_width='500', inset_x='', inset_y='',
+                        inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='')
         self.loading = True
         for key, value in dict(defaults, **self.settings.get(str(self.current), {})).items():
             if key in self.vars:
@@ -359,6 +376,14 @@ class TEMStudio(tk.Tk):
         a.background = {'Auto': None, 'Black': 0, 'White': 255}[s['background']]
         a.keep_original_footer = s.get('remove_footer', 'Yes') == 'No'
         a.erase_box = core.rectangle(s['erase_box']) if s['erase_box'].strip() else None
+        a.inset_roi = core.rectangle(s['inset_roi']) if s.get('inset_enabled') == 'Yes' and s.get('inset_roi', '').strip() else None
+        a.inset_width = int(s.get('inset_width', '500'))
+        a.inset_x = int(s['inset_x']) if s.get('inset_x', '').strip() else None
+        a.inset_y = int(s['inset_y']) if s.get('inset_y', '').strip() else None
+        a.inset_color = s.get('inset_color', 'white')
+        a.inset_border = int(s.get('inset_border', '4'))
+        a.inset_no_connector = s.get('inset_connector', 'Yes') == 'No'
+        a.inset_bar_nm = core.positive(s['inset_bar_nm']) if s.get('inset_bar_nm', '').strip() else None
         a.output_dir = Path(out or self.temp.name)
         a.output_dir.mkdir(parents=True, exist_ok=True)
         return a
@@ -441,6 +466,10 @@ class TEMStudio(tk.Tk):
         self.photo = ImageTk.PhotoImage(self.preview_image.resize(size, Image.Resampling.LANCZOS))
         self.canvas.delete('all')
         self.canvas.create_image(ox, oy, anchor='nw', image=self.photo)
+        if self.view == 'tem' and self.report and self.report.get('inset'):
+            x0, y0, x1, y1 = self.report['inset']['box']
+            self.canvas.create_rectangle(ox+x1*scale-9, oy+y1*scale-9,
+                                         ox+x1*scale, oy+y1*scale, fill='#ffca3a', outline='#202833')
 
     def point(self, event):
         scale, ox, oy = self.transform
@@ -451,17 +480,28 @@ class TEMStudio(tk.Tk):
         if not self.current:
             messagebox.showinfo('Add image', 'Please add a TIFF first.')
             return
-        self.show_original()
+        if mode == 'inset':
+            self.refresh_tem()
+        else:
+            self.show_original()
         self.mode.set(mode)
-        self.status.set('Drag between original bar endpoints (center to center).' if mode == 'measure' else 'Drag a rectangle covering the entire original bar and text.')
+        self.status.set('Drag a source rectangle for the inset.' if mode == 'inset' else 'Drag between original bar endpoints (center to center).' if mode == 'measure' else 'Drag a rectangle covering the entire original bar and text.')
 
     def press(self, event):
         if self.preview_image is None or self.view == 'distribution':
             return
         point = self.point(event)
-        if self.mode.get() in ('measure', 'erase'):
+        if self.mode.get() in ('measure', 'erase', 'inset'):
             self.drag = (point, (event.x, event.y))
         elif self.view == 'tem' and self.report:
+            inset = self.report.get('inset')
+            if inset:
+                x0, y0, x1, y1 = inset['box']
+                if x0 <= point[0] < x1 and y0 <= point[1] < y1:
+                    tolerance = 16/self.transform[0]
+                    self.mode.set('resize_inset' if x1-point[0] < tolerance and y1-point[1] < tolerance else 'move_inset')
+                    self.drag = (point, (x0, y0))
+                    return
             x0, y0, x1, y1 = self.report['annotation_box']
             if x0-15 <= point[0] <= x1+15 and y0-15 <= point[1] <= y1+15:
                 self.drag = (point, (x0, y0))
@@ -470,7 +510,7 @@ class TEMStudio(tk.Tk):
         if self.drag is None:
             return
         self.canvas.delete('selection')
-        if self.mode.get() in ('measure', 'erase'):
+        if self.mode.get() in ('measure', 'erase', 'inset'):
             x, y = self.drag[1]
             if self.mode.get() == 'measure':
                 self.canvas.create_line(x, y, event.x, event.y, fill='#ffca3a', width=3, tags='selection')
@@ -481,7 +521,11 @@ class TEMStudio(tk.Tk):
             x = self.drag[1][0]+point[0]-self.drag[0][0]
             y = self.drag[1][1]+point[1]-self.drag[0][1]
             scale, ox, oy = self.transform
-            box = self.report['annotation_box']
+            box = self.report['inset']['box'] if self.mode.get() in ('move_inset', 'resize_inset') else self.report['annotation_box']
+            if self.mode.get() == 'resize_inset':
+                x, y = box[:2]
+                width = max(80, point[0]-x)
+                box = [x, y, x+width, y+round(width*(box[3]-box[1])/(box[2]-box[0]))]
             self.canvas.create_rectangle(ox+x*scale, oy+y*scale, ox+(x+box[2]-box[0])*scale,
                                          oy+(y+box[3]-box[1])*scale, outline='#ffca3a', width=2, tags='selection')
 
@@ -500,12 +544,35 @@ class TEMStudio(tk.Tk):
                     raise ValueError('Measurement too short; drag across the original bar')
                 self.vars['original_bar_px'].set(f'{distance:.4f}')
                 self.vars['cal_mode'].set('Manual bar width')
-            elif self.mode.get() == 'erase':
+            elif self.mode.get() in ('erase', 'inset'):
                 x0, x1 = sorted([start[0], point[0]])
                 y0, y1 = sorted([start[1], point[1]])
                 if x1 == x0 or y1 == y0:
                     raise ValueError('Draw a non-empty rectangle')
-                self.vars['erase_box'].set(f'{x0},{y0},{x1+1},{y1+1}')
+                key = 'inset_roi' if self.mode.get() == 'inset' else 'erase_box'
+                self.vars[key].set(f'{x0},{y0},{x1+1},{y1+1}')
+                if key == 'inset_roi':
+                    self.vars['inset_enabled'].set('Yes')
+                    w, h = self.preview_image.size
+                    ratio = (y1-y0+1)/(x1-x0+1)
+                    width = min(500, w-40, int((h-40)/ratio))
+                    self.vars['inset_width'].set(str(width))
+                    self.vars['inset_x'].set(str(max(0, w-width-20)))
+                    self.vars['inset_y'].set('20')
+            elif self.mode.get() in ('move_inset', 'resize_inset'):
+                box = self.report['inset']['box']
+                w, h = self.preview_image.size
+                width, height = box[2]-box[0], box[3]-box[1]
+                x, y = other
+                if self.mode.get() == 'resize_inset':
+                    ratio = height/width
+                    width = max(80, min(point[0]-x, w-x, int((h-y)/ratio)))
+                    self.vars['inset_width'].set(str(width))
+                else:
+                    x = max(0, min(w-width, x+point[0]-start[0]))
+                    y = max(0, min(h-height, y+point[1]-start[1]))
+                self.vars['inset_x'].set(str(x))
+                self.vars['inset_y'].set(str(y))
             else:
                 x = other[0]+point[0]-start[0]
                 y = other[1]+point[1]-start[1]
@@ -754,6 +821,17 @@ def packaged_self_test(report_path):
         if (folder / 'size_distribution.pdf').exists():
             raise RuntimeError('Preview unexpectedly wrote PDF')
         checks = []
+        import numpy as np
+        inset_source = folder/'inset-check.tif'
+        tifffile.imwrite(inset_source, np.full((800, 1024), 145, dtype=np.uint8))
+        inset_args = core.create_parser().parse_args(['--nm-per-pixel', '0.5',
+            '--erase-box', '0,750,100,800', '--inset-roi', '50,50,150,150',
+            '--inset-width', '300', '--inset-x', '600', '--inset-y', '30',
+            '--inset-bar-nm', '10', '--output-dir', str(folder)])
+        inset_result = core.redraw(inset_source, inset_args)
+        if inset_result['inset']['bar_pixels'] != 60:
+            raise RuntimeError('Inset scale calibration failed in packaged app')
+        checks.append('inset: PNG + TIFF, 3x zoom and 10 nm / 60 px passed')
         # Exercise the same cryptography dependency and bundled trust config
         # used by update discovery inside the frozen executable.
         import base64

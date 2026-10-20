@@ -174,6 +174,7 @@ def redraw(path, args, render_only=False):
             expanded.paste(im, (0, 0))
             im, h = expanded, new_h
             draw = ImageDraw.Draw(im)
+    clean_source = im.copy()
     choices = [n for n in (10, 20, 50, 100, 200, 500) if n/scale <= w-2*args.margin]
     matched = args.original_bar_nm if getattr(args, 'match_original_bar', False) else None
     if args.bar_nm is None and matched is None and not choices:
@@ -220,6 +221,12 @@ def redraw(path, args, render_only=False):
             'annotation_box': [left, top, left+bw, top+bh], 'output_size': [w, h],
             'removed_black_footer': removed_footer,
             'pixel_rounding_error': abs(pixels-length/scale)}
+    if getattr(args, 'inset_roi', None):
+        from tem_inset import compose
+        position = None if args.inset_x is None or args.inset_y is None else (args.inset_x, args.inset_y)
+        im, report['inset'] = compose(im, clean_source, scale, args.inset_roi,
+            args.inset_width, position, args.inset_color, args.inset_border,
+            not args.inset_no_connector, args.inset_bar_nm)
     if render_only:
         return im, report
     result = np.asarray(im)
@@ -309,6 +316,14 @@ def create_parser():
     p.add_argument('--footer-height', type=int, default=0, help='Minimum height of a full-width annotation footer; extends canvas without covering microscopy')
     p.add_argument('--keep-original-footer', action='store_true', help='Keep the original black annotation footer instead of cropping it off')
     p.add_argument('--label-position', choices=['above', 'below'], default='above')
+    p.add_argument('--inset-roi', type=rectangle, help='Inset source rectangle x0,y0,x1,y1, in cleaned image pixels')
+    p.add_argument('--inset-width', type=int, default=500)
+    p.add_argument('--inset-x', type=int)
+    p.add_argument('--inset-y', type=int)
+    p.add_argument('--inset-color', choices=['white', 'black'], default='white')
+    p.add_argument('--inset-border', type=int, default=4)
+    p.add_argument('--inset-no-connector', action='store_true')
+    p.add_argument('--inset-bar-nm', type=positive, help='Inset bar length; default selects a readable length automatically')
     bins = p.add_mutually_exclusive_group()
     bins.add_argument('--bins', type=int, default=12)
     bins.add_argument('--bin-width', type=positive)

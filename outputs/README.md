@@ -66,3 +66,19 @@ python outputs/tem_studio.py --self-test check.json
 ```
 
 Checks cover updater signature/checksum handling, installation rollback, image-specific calibration, image pixel preservation, dragging, small-window scrolling and distribution PNG/PDF export.
+
+## Local zoom inset (0.0.2 test)
+Open **Inset zoom**, click **Select source region on image**, and drag a rectangle.
+Drag the inset to move it; drag its yellow lower-right handle to resize it.
+Width preserves the selected aspect ratio. X/Y, border thickness, black/white color,
+connector line and inset scale-bar length are editable in the left panel.
+A blank inset scale-bar length selects a readable physical length automatically.
+The inset samples the cleaned original image before any new annotation is drawn.
+The independent nm/pixel calibration updates when the inset size changes.
+Export current / Export all include the inset in both PNG and TIFF. Original files
+remain unchanged. Each image stores its own inset settings in saved projects.
+
+CLI example (coordinates refer to the image after footer removal):
+```
+python tem_scalebar_distribution.py --tiff sample.tif --nm-per-pixel 0.5 --inset-roi 100,100,300,300 --inset-width 600 --inset-x 1000 --inset-y 50 --inset-color white --inset-border 4 --output-dir results
+```
