@@ -10,14 +10,15 @@ import tempfile
 
 import numpy as np
 from PIL import Image, ImageOps
+from scipy.ndimage import label, find_objects
 
 
-def parse_scale_text(lines):
+def parse_scale_text(lines, min_confidence=.5):
     values = {}
     for item in lines:
         text = item['text']
         confidence = item.get('confidence')
-        if confidence is not None and confidence < .5:
+        if confidence is not None and confidence < min_confidence:
             continue
         for match in re.finditer(r'(?<![\w.])(\d+(?:[.,]\d+)?)\s*(nm|[uµμ]m)(?!\w)', text, re.I):
             number = float(match[1].replace(',', '.'))
@@ -135,6 +136,20 @@ def read_scale_label(array, region):
     patch = Image.fromarray(array[y0:y1, x0:x1]).convert('L')
     values = np.asarray(patch)
     bg = float(np.median(values))
+    # The horizontal bar is not text: exclude its connected component from
+    # the temporary OCR crop so it is not read as a dash next to the label.
+    foreground = np.abs(values.astype(float)-bg) > 80
+    components, _ = label(foreground)
+    cleaned = values.copy()
+    for component in find_objects(components):
+        if component is None:
+            continue
+        rows, columns = component
+        height, width = rows.stop-rows.start, columns.stop-columns.start
+        if width >= 30 and width > 5*height:
+            cleaned[rows, columns] = round(bg)
+    values = cleaned
+    patch = Image.fromarray(values)
     yy, xx = np.where(np.abs(values.astype(float)-bg) > 80)
     if len(xx):
         patch = patch.crop((max(0, int(xx.min())-5), max(0, int(yy.min())-5),
@@ -165,7 +180,7 @@ def read_scale_label(array, region):
                 patch.resize((round(patch.width*.85), round(patch.height*.85)), Image.Resampling.LANCZOS).save(alternate)
                 check_lines = mac_text(alternate) if sys.platform == 'darwin' else windows_text(alternate)
                 try:
-                    check_nm, _ = parse_scale_text(check_lines)
+                    check_nm, _ = parse_scale_text(check_lines, min_confidence=.2)
                 except ValueError as e:
                     raise ValueError(f'{e} Second pass: {check_lines!r}') from e
                 if nm != check_nm:
