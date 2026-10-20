@@ -8,12 +8,19 @@ import tempfile
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-from PIL import Image, ImageTk
-import tifffile
-import tem_scalebar_distribution as core
 from app_version import __version__, APP_NAME
 import updater
 import update_ui
+
+
+def load_dependencies(step):
+    global Image, ImageTk, tifffile, core
+    step(15, 'Loading image support')
+    from PIL import Image, ImageTk
+    import tifffile
+    step(40, 'Loading analysis and plotting libraries')
+    import tem_scalebar_distribution as core
+    step(80, 'Preparing the editor')
 
 
 class ScrollableTab(ttk.Frame):
@@ -47,8 +54,14 @@ class ScrollableTab(ttk.Frame):
 
 
 class TEMStudio(tk.Tk):
-    def __init__(self, enable_updates=True):
+    def __init__(self, enable_updates=True, show_startup=False, startup_callback=None):
         super().__init__()
+        panel = None
+        if show_startup:
+            from startup_progress import StartupPanel
+            panel = StartupPanel(self, startup_callback)
+        load_dependencies(panel.step if panel else lambda *_: None)
+        self.startup_steps = panel.steps if panel else []
         self.title(f'{APP_NAME} {__version__} · Scale Bar & Size Distribution')
         self.tk.call('tk', 'appname', APP_NAME)
         self.enable_updates = enable_updates
@@ -84,6 +97,9 @@ class TEMStudio(tk.Tk):
         style.configure('TButton', font=('Segoe UI', 10), padding=5)
         style.configure('Accent.TButton', background='#225e9b', foreground='white')
         self.build()
+        if panel:
+            panel.step(100, 'Ready')
+            panel.close()
         self.bind_all('<MouseWheel>', self.scroll_left)
         self.bind_all('<Button-4>', self.scroll_left)
         self.bind_all('<Button-5>', self.scroll_left)
@@ -798,12 +814,12 @@ class TEMStudio(tk.Tk):
         self.destroy()
 
 
-def packaged_self_test(report_path):
+def packaged_self_test(report_path, startup_callback=None):
     """Exercise preview and both export modes inside the frozen executable."""
     result = {'success': False}
     app = None
     try:
-        app = TEMStudio(enable_updates=False)
+        app = TEMStudio(enable_updates=False, show_startup=True, startup_callback=startup_callback)
         app.withdraw()
         app.update()
         if not app.title().startswith(APP_NAME) or app.app_icon.width() != 64 or app.header_icon.width() != 42:
@@ -894,6 +910,7 @@ def packaged_self_test(report_path):
                 raise RuntimeError('Incorrect distribution statistics')
             checks.append(mode + ': PNG + PDF + statistics passed')
         result = {'success': True, 'version': __version__, 'application_name': APP_NAME,
+                  'startup_progress': {'steps': app.startup_steps, 'completed': app.startup_steps[-1:] == [100]},
                   'application_icon': 'loaded', 'frozen': bool(getattr(sys, 'frozen', False)),
                   'small_window_scroll': 'passed at 1000x550',
                   'signed_update_verification': 'passed',
@@ -922,4 +939,4 @@ if __name__ == '__main__':
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
-    TEMStudio().mainloop()
+    TEMStudio(show_startup=True).mainloop()
