@@ -1,4 +1,4 @@
-"""graph tool desktop application. Run directly or use the bundled EXE."""
+"""TEM graphic tool desktop application. Run directly or use the bundled EXE."""
 import copy
 import json
 import os
@@ -150,6 +150,7 @@ class TEMStudio(tk.Tk):
         self.field(inset, 'Connector thickness (px)', 'inset_connector_width', '4')
         self.field(inset, 'Connector color', 'inset_connector_color', 'white', ['white', 'black'])
         self.field(inset, 'Inset bar nm (blank=auto)', 'inset_bar_nm')
+        self.field(inset, 'Show inset scale bar', 'inset_show_scalebar', 'Yes', ['Yes', 'No'])
         ttk.Label(inset, text='Select a region, then drag the inset to move it. Drag its lower-right corner to resize. Aspect ratio is preserved; its scale bar updates automatically. All dimensions use original image pixels.', wraplength=375).pack(anchor='w', pady=12)
         updates = ScrollableTab(tabs)
         self.scroll_tabs.append(updates)
@@ -300,7 +301,7 @@ class TEMStudio(tk.Tk):
                         label_position='above', gap='12', bar_x='', bar_y='',
                         inset_enabled='No', inset_roi='', inset_width='500', inset_x='', inset_y='',
                         inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='',
-                        inset_connector_width='4', inset_connector_color='white')
+                        inset_connector_width='4', inset_connector_color='white', inset_show_scalebar='Yes')
         self.loading = True
         for key, value in dict(defaults, **self.settings.get(str(self.current), {})).items():
             if key in self.vars:
@@ -389,6 +390,7 @@ class TEMStudio(tk.Tk):
         a.inset_connector_width = int(s.get('inset_connector_width', '4'))
         a.inset_connector_color = s.get('inset_connector_color', 'white')
         a.inset_bar_nm = core.positive(s['inset_bar_nm']) if s.get('inset_bar_nm', '').strip() else None
+        a.inset_no_scalebar = s.get('inset_show_scalebar', 'Yes') == 'No'
         a.output_dir = Path(out or self.temp.name)
         a.output_dir.mkdir(parents=True, exist_ok=True)
         return a
@@ -837,6 +839,11 @@ def packaged_self_test(report_path):
         if inset_result['inset']['bar_pixels'] != 60:
             raise RuntimeError('Inset scale calibration failed in packaged app')
         checks.append('inset: PNG + TIFF, 3x zoom and 10 nm / 60 px passed')
+        inset_args.inset_no_scalebar = True
+        hidden_image, hidden_report = core.redraw(inset_source, inset_args, render_only=True)
+        if hidden_report['inset']['show_scalebar'] or not np.all(np.asarray(hidden_image)[35:325, 605:895] == 145):
+            raise RuntimeError('Inset scale bar visibility switch failed')
+        checks.append('inset scale bar: hidden without changing inset pixels')
         # Exercise the same cryptography dependency and bundled trust config
         # used by update discovery inside the frozen executable.
         import base64

@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 def compose(image, source, nm_per_pixel, roi, width=500, position=None,
             color='white', border=4, connector=True, bar_nm=None,
-            connector_width=4, connector_color='white'):
+            connector_width=4, connector_color='white', show_scalebar=True):
     w, h = image.size
     x0, y0, x1, y1 = map(int, roi)
     if not (0 <= x0 < x1 <= source.width and 0 <= y0 < y1 <= source.height):
@@ -34,15 +34,16 @@ def compose(image, source, nm_per_pixel, roi, width=500, position=None,
     tw, th = tb[2]-tb[0], tb[3]-tb[1]
     margin = max(10, round(width*.04))
     thickness = max(3, round(width*.01))
-    if pixels < 1 or max(pixels, tw)+2*margin > width or th+thickness+3*margin > height:
+    if show_scalebar and (pixels < 1 or max(pixels, tw)+2*margin > width or th+thickness+3*margin > height):
         raise ValueError('Inset scale bar does not fit; reduce inset bar length or enlarge inset')
     white = 255 if image.mode == 'L' else (255,)*3
     black = 0 if image.mode == 'L' else (0,)*3
     ink = white if color == 'white' else black
     bx, by = width-margin-pixels, height-margin-thickness
     tx = width-margin-tw
-    d.rectangle((bx, by, bx+pixels-1, by+thickness-1), fill=ink)
-    d.text((tx-tb[0], by-th-margin-tb[1]), label, font=font, fill=ink)
+    if show_scalebar:
+        d.rectangle((bx, by, bx+pixels-1, by+thickness-1), fill=ink)
+        d.text((tx-tb[0], by-th-margin-tb[1]), label, font=font, fill=ink)
     out = image.copy()
     d = ImageDraw.Draw(out)
     if connector:
@@ -64,4 +65,6 @@ def compose(image, source, nm_per_pixel, roi, width=500, position=None,
     d.rectangle((left, top, left+width-1, top+height-1), outline=ink, width=border)
     return out, dict(source_box=list(roi), box=[left, top, left+width, top+height],
                      magnification=zoom, nm_per_pixel=scale, bar_nm=length,
-                     bar_pixels=pixels, pixel_rounding_error=abs(pixels-length/scale))
+                     show_scalebar=show_scalebar,
+                     bar_pixels=pixels if show_scalebar else None,
+                     pixel_rounding_error=abs(pixels-length/scale) if show_scalebar else None)

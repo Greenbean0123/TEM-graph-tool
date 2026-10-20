@@ -1,4 +1,4 @@
-# TEM Studio for macOS
+# TEM graphic tool for macOS
 
 此包包含同一套跨平台桌面程序：逐图标尺测量、在图像上拖动大比例尺、黑/白样式、粒径分布与高斯拟合、PNG/TIFF/PDF 导出、可滚动的左侧参数区。
 

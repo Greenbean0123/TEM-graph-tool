@@ -227,7 +227,7 @@ def redraw(path, args, render_only=False):
         im, report['inset'] = compose(im, clean_source, scale, args.inset_roi,
             args.inset_width, position, args.inset_color, args.inset_border,
             not args.inset_no_connector, args.inset_bar_nm,
-            args.inset_connector_width, args.inset_connector_color)
+            args.inset_connector_width, args.inset_connector_color, not args.inset_no_scalebar)
     if render_only:
         return im, report
     result = np.asarray(im)
@@ -324,6 +324,7 @@ def create_parser():
     p.add_argument('--inset-color', choices=['white', 'black'], default='white')
     p.add_argument('--inset-border', type=int, default=4)
     p.add_argument('--inset-no-connector', action='store_true')
+    p.add_argument('--inset-no-scalebar', action='store_true', help='Hide only the zoom inset scale bar and label; retain main image scale bar')
     p.add_argument('--inset-connector-width', type=int, default=4)
     p.add_argument('--inset-connector-color', choices=['white', 'black'], default='white')
     p.add_argument('--inset-bar-nm', type=positive, help='Inset bar length; default selects a readable length automatically')

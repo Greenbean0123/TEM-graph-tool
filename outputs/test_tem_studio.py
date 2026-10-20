@@ -39,6 +39,18 @@ class TEMTests(unittest.TestCase):
         self.assertEqual(out.getpixel((180, 141)), 0)
         self.assertEqual(out.getpixel((180, 65)), 145)
 
+    def test_hidden_inset_bar_leaves_source_pixels_visible(self):
+        from PIL import Image
+        from tem_inset import compose
+        source = Image.new('L', (512, 512), 145)
+        shown, _ = compose(source, source, .5, (20, 20, 100, 100), 160, (250, 20))
+        hidden, r = compose(source, source, .5, (20, 20, 100, 100), 160, (250, 20),
+                            bar_nm=100000, show_scalebar=False)
+        self.assertFalse(r['show_scalebar'])
+        self.assertIsNone(r['bar_pixels'])
+        np.testing.assert_array_equal(np.asarray(hidden)[25:175, 255:405], 145)
+        self.assertFalse(np.array_equal(np.asarray(shown), np.asarray(hidden)))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.folder = Path(self.tmp.name)
@@ -128,6 +140,15 @@ class TEMTests(unittest.TestCase):
             r = core.redraw(one, args)
             self.assertIn('inset', r)
             self.assertTrue((self.folder/'one_scalebar.png').exists())
+            main_bar = list(app.report['bar_box'])
+            x0, y0, x1, y1 = main_bar
+            main_pixels = np.asarray(app.preview_image)[y0:y1, x0:x1].copy()
+            app.vars['inset_show_scalebar'].set('No')
+            app.refresh_tem(quiet=True)
+            self.assertFalse(app.report['inset']['show_scalebar'])
+            self.assertTrue(app.get_args().inset_no_scalebar)
+            self.assertEqual(main_bar, app.report['bar_box'])
+            np.testing.assert_array_equal(np.asarray(app.preview_image)[y0:y1, x0:x1], main_pixels)
         finally:
             app.close()
 

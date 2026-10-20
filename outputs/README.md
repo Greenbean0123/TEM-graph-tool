@@ -1,4 +1,4 @@
-# graph tool
+# TEM graphic tool
 
 A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian fits. No particle detection or diameter extraction is performed.
 
@@ -87,3 +87,9 @@ The source region and inset are joined by two edge-to-edge connector lines.
 Connector thickness (1–30 px) and black/white color are independently configurable
 from the inset frame, including CLI --inset-connector-width and --inset-connector-color.
 Inset scale labels and bars are drawn directly on the microscopy without a background block.
+
+### Zoom scale visibility
+In **Inset zoom**, set **Show inset scale bar** to **Yes** (default) or **No**.
+This controls only the inset label and line. It is saved per image and in projects,
+used in both preview and exported TIFF/PNG, and leaves the main scale bar setting unchanged.
+CLI: add `--inset-no-scalebar` to hide the inset scale bar.
