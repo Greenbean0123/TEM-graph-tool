@@ -52,7 +52,8 @@ class ScaleOCRTests(unittest.TestCase):
                 self.assertEqual(report['original_bar_nm'], nm)
                 self.assertEqual(report['measured_original_bar_pixels'], width)
                 self.assertAlmostEqual(report['nm_per_pixel'], nm/width)
-                self.assertEqual(im.size, (1024, 800))
+                self.assertEqual(im.size, (1024, 700))
+                self.assertEqual(report['removed_black_footer'], (0, 700, 1024, 800))
 
     def test_gui_import_populates_original_calibration(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -75,6 +76,22 @@ class ScaleOCRTests(unittest.TestCase):
                 self.assertEqual(app.vars['bar_nm'].get(), '50')
             finally:
                 app.close()
+
+    def test_footer_can_be_kept_and_nonfooter_images_are_not_cropped(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = scale_fixture(folder)
+            args = core.create_parser().parse_args([])
+            args.nm_per_pixel = 1
+            args.keep_original_footer = True
+            im, report = core.redraw(path, args, render_only=True)
+            self.assertEqual(im.size, (1024, 800))
+            self.assertIsNone(report['removed_black_footer'])
+            no_footer = Path(folder)/'no_footer.tif'
+            tifffile.imwrite(no_footer, np.full((800, 1024), 145, dtype=np.uint8))
+            args.keep_original_footer = False
+            im, report = core.redraw(no_footer, args, render_only=True)
+            self.assertEqual(im.size, (1024, 800))
+            self.assertIsNone(report['removed_black_footer'])
 
     @unittest.skipUnless(sys.platform == 'darwin', 'Requires the actual macOS Vision framework')
     def test_native_mac_reader_without_manual_nm(self):

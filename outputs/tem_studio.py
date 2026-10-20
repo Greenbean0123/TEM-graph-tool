@@ -162,6 +162,7 @@ class TEMStudio(tk.Tk):
         ttk.Button(data, text='Measure original bar with two points', command=lambda: self.tool('measure')).pack(fill='x', pady=4)
         self.field(data, 'Erase box (x0,y0,x1,y1)', 'erase_box')
         self.field(data, 'Erase background', 'background', 'Auto', ['Auto', 'Black', 'White'])
+        self.field(data, 'Remove black footer', 'remove_footer', 'Yes', ['Yes', 'No'])
         self.field(data, 'Original corner', 'original_corner', 'bottom-right', ['bottom-right', 'bottom-left', 'top-right', 'top-left'])
         ttk.Button(data, text='Draw original annotation erase box', command=lambda: self.tool('erase')).pack(fill='x', pady=4)
         ttk.Label(data, text='Blank erase box: detect a separate footer, otherwise use a 420 × 130 px corner box. Draw a box for other layouts.', wraplength=375, foreground='#65758b').pack(anchor='w', pady=6)
@@ -277,7 +278,7 @@ class TEMStudio(tk.Tk):
         self.store()
         self.current = self.files[indices[0]]
         defaults = dict(cal_mode='Auto measure bar', original_bar_nm='', original_unit='nm', match_original='true', original_bar_px='', nm_per_pixel='',
-                        erase_box='', background='Auto', original_corner='bottom-right', bar_nm='', target_width='500',
+                        erase_box='', background='Auto', remove_footer='Yes', original_corner='bottom-right', bar_nm='', target_width='500',
                         color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
                         label_position='above', gap='12', bar_x='', bar_y='')
         self.loading = True
@@ -356,6 +357,7 @@ class TEMStudio(tk.Tk):
         for key in ('color', 'corner', 'original_corner', 'label_position'):
             setattr(a, key, s[key])
         a.background = {'Auto': None, 'Black': 0, 'White': 255}[s['background']]
+        a.keep_original_footer = s.get('remove_footer', 'Yes') == 'No'
         a.erase_box = core.rectangle(s['erase_box']) if s['erase_box'].strip() else None
         a.output_dir = Path(out or self.temp.name)
         a.output_dir.mkdir(parents=True, exist_ok=True)
@@ -784,6 +786,8 @@ def packaged_self_test(report_path):
                 raise RuntimeError('Native 50 nm auto-import did not populate calibration')
             if app.report['bar_pixels'] != 151:
                 raise RuntimeError('Default new bar does not match the original 50 nm / 151 px')
+            if app.preview_image.size != (1024, 700) or not app.report.get('removed_black_footer'):
+                raise RuntimeError('Original black scale-bar footer was not removed')
             mac_ocr = 'passed: original and default new bar 50 nm / 151 px, fields populated'
         for mode in ('count', 'frequency'):
             app.vars['y_mode'].set(mode)

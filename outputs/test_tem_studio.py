@@ -42,13 +42,12 @@ class TEMTests(unittest.TestCase):
             self.assertEqual(r['measured_original_bar_pixels'], width)
             self.assertAlmostEqual(r['nm_per_pixel'], 100/width)
             self.assertLessEqual(r['pixel_rounding_error'], .5)
-            mask = np.ones(original.shape, dtype=bool)
-            mask[450:] = False
+            mask = np.ones((450, 512), dtype=bool)
             x0, y0, x1, y1 = r['annotation_box']
             mask[y0:y1, x0:x1] = False
-            self.assertTrue(np.array_equal(np.asarray(im)[mask], original[mask]))
-            self.assertEqual(im.size, (512, 512))
-            self.assertFalse(np.asarray(im)[450:].any())
+            self.assertTrue(np.array_equal(np.asarray(im)[mask], original[:450][mask]))
+            self.assertEqual(im.size, (512, 450))
+            self.assertEqual(r['removed_black_footer'], (0, 450, 512, 512))
             self.assertEqual(path.read_bytes(), before)
 
     def test_gui_retains_per_image_settings_and_drag_position(self):

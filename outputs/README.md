@@ -9,6 +9,8 @@ A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian
 3. **Distribution**: Open CSV, select a named diameter column in nm, choose bins or bin width and Count/Frequency. Preview then Export current for PNG and optional PDF.
 4. Export all TEM uses each image's independent calibration and appearance. Save/Open project preserves input paths and settings; input data must remain at those paths.
 
+**Remove black footer** defaults to Yes: after reading the original scale, the separate black annotation strip is cropped off and the new scale is placed on the remaining microscopy image. This changes output height but preserves microscopy pixels and physical calibration. No/`--keep-original-footer` keeps the old strip. Images without a separate black footer are not automatically cropped; their original annotation is cleared locally with an erase box.
+
 All four left tabs scroll vertically with the wheel/trackpad or scrollbar. Load sample generates a temporary **synthetic demonstration**, not experimental measurements.
 
 ## Command line

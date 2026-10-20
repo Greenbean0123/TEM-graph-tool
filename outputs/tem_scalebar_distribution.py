@@ -132,12 +132,14 @@ def redraw(path, args, render_only=False):
     # A separate footer is safe to clear automatically only when a flat
     # full-width separator and uniform side margins delimit it.
     roi = args.erase_box
+    footer = None
+    for y in range(int(h * .85), h - 4):
+        level = gray[y, 0]
+        if np.all(gray[y] == level) and np.all(gray[y:, :8] == level) and np.all(gray[y:, -8:] == level):
+            footer = (0, y, w, h)
+            break
     if roi is None:
-        for y in range(int(h * .85), h - 4):
-            level = gray[y, 0]
-            if np.all(gray[y] == level) and np.all(gray[y:, :8] == level) and np.all(gray[y:, -8:] == level):
-                roi = (0, y, w, h)
-                break
+        roi = footer
     if roi is None:
         rw, rh = args.erase_width, args.erase_height
         x = w - rw if 'right' in args.original_corner else 0
@@ -152,8 +154,19 @@ def redraw(path, args, render_only=False):
         bg = args.background if a.ndim == 2 else (args.background,) * 3
     draw = ImageDraw.Draw(im)
     draw.rectangle((x0, y0, x1-1, y1-1), fill=bg)
+    removed_footer = None
+    if footer and not getattr(args, 'keep_original_footer', False):
+        _, fy, _, _ = footer
+        footer_pixels = gray[fy:]
+        # Crop only a separate, overwhelmingly black annotation strip.
+        # Other erase boxes remain local fills inside the microscopy image.
+        if gray[fy, 0] <= 8 and float(np.mean(footer_pixels <= 8)) >= .85:
+            removed_footer = footer
+            im = im.crop((0, 0, w, fy))
+            h = fy
+            draw = ImageDraw.Draw(im)
     footer_height = getattr(args, 'footer_height', 0)
-    if footer_height and x0 == 0 and x1 == w and y1 == h:
+    if footer_height and not removed_footer and x0 == 0 and x1 == w and y1 == h:
         # Extend the annotation footer instead of covering the microscopy area.
         new_h = max(h, y0 + footer_height)
         if new_h > h:
@@ -183,6 +196,8 @@ def redraw(path, args, render_only=False):
         left = args.bar_x
     if getattr(args, 'bar_y', None) is not None:
         top = args.bar_y
+        if removed_footer:
+            top = min(top, h-bh)
     if not (0 <= left <= w-bw and 0 <= top <= h-bh):
         raise ValueError('Bar/label position outside image')
     by = top+th+args.gap if args.label_position == 'above' else top
@@ -203,6 +218,7 @@ def redraw(path, args, render_only=False):
             'erase_box': roi, 'bar_nm': length, 'bar_pixels': pixels,
             'ideal_bar_pixels': length/scale, 'bar_box': [bx, by, bx+pixels, by+args.thickness],
             'annotation_box': [left, top, left+bw, top+bh], 'output_size': [w, h],
+            'removed_black_footer': removed_footer,
             'pixel_rounding_error': abs(pixels-length/scale)}
     if render_only:
         return im, report
@@ -291,6 +307,7 @@ def create_parser():
     p.add_argument('--bar-x', type=int, help='Custom annotation left coordinate, in full-resolution pixels')
     p.add_argument('--bar-y', type=int, help='Custom annotation top coordinate, in full-resolution pixels')
     p.add_argument('--footer-height', type=int, default=0, help='Minimum height of a full-width annotation footer; extends canvas without covering microscopy')
+    p.add_argument('--keep-original-footer', action='store_true', help='Keep the original black annotation footer instead of cropping it off')
     p.add_argument('--label-position', choices=['above', 'below'], default='above')
     bins = p.add_mutually_exclusive_group()
     bins.add_argument('--bins', type=int, default=12)
@@ -315,7 +332,7 @@ def main():
         for path in args.tiff or []:
             local = copy.copy(args)
             for key, value in config.get(path.name, {}).items():
-                if key not in {'nm_per_pixel', 'original_bar_nm', 'original_bar_px', 'measure_original_bar', 'measure_box', 'erase_box', 'bar_nm', 'match_original_bar', 'ocr_default_unit', 'corner', 'original_corner', 'color', 'background', 'font_size', 'thickness', 'margin', 'gap', 'label_position', 'target_width'}:
+                if key not in {'nm_per_pixel', 'original_bar_nm', 'original_bar_px', 'measure_original_bar', 'measure_box', 'erase_box', 'bar_nm', 'match_original_bar', 'ocr_default_unit', 'keep_original_footer', 'corner', 'original_corner', 'color', 'background', 'font_size', 'thickness', 'margin', 'gap', 'label_position', 'target_width'}:
                     raise ValueError(f'Unsupported per-image option: {key}')
                 setattr(local, key, value)
             images.append(redraw(path, local))
