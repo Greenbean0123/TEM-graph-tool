@@ -1,4 +1,4 @@
-# TEM graphic tool
+# TEM Graph tool
 
 A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian fits. No particle detection or diameter extraction is performed.
 
@@ -7,7 +7,7 @@ A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian
 1. **Data & calibration**: Add TIFF images. Auto mode reads the original nm/µm text using the operating system's OCR and measures the bar independently for each image. Detected original length, pixel width and nm/pixel are filled into the left panel. **Original label unit** defaults to nm and also supports µm. Correct the number or unit manually when needed. If the OCR reads the number but not its unit, the selected unit is used and a verification message is displayed. Re-detect original scale bar retries recognition; manual label/width and nm/pixel remain available. Draw an erase box covering the original label and bar when needed.
 2. **Scale bar**: Change nm length, black/white color, thickness, font size, corner and margin. Drag the new bar in the preview for custom positioning. X/Y are the top-left of the combined label and bar. The bar is overlaid directly on the image without expanding its canvas.
 3. **Distribution**: Open CSV, select a named diameter column in nm, choose bins or bin width and Count/Frequency. Use **Export size distribution** independently of the current preview.
-4. **Export TEM image** exports the edited TEM with its scale bar and optional inset. Choose PNG only, TIFF only, or both. **Export size distribution** offers PNG, PDF, or both. JSON reports are optional and off by default, so PNG-only exports produce only the PNG.
+4. **Export TEM image** exports the edited TEM with its scale bar and optional inset/distribution overlay. Choose PNG, TIFF, PDF and/or SVG. **Export size distribution** offers PNG, PDF and/or SVG. PDF/SVG charts retain vector bars, curves and text; a TEM image inside a composite remains raster data. JSON reports are optional and off by default, so PNG-only exports produce only the PNG.
 5. **Batch export TEM** lets you select several loaded images and their output formats. Leave the name blank to use each original filename plus `_scalebar`. A custom prefix generates `prefix_001`, `prefix_002`, etc. Each image keeps its own calibration and appearance. Save/Open project preserves input paths and settings; input data must remain at those paths.
 
 Every export dialog includes an output folder, optional filename and format checkboxes. Blank single-image names use `original_scalebar`; blank distribution names use `size_distribution`. Recognized image extensions are optional. Single exports work regardless of whether the current preview shows TEM or a distribution. Source TIFFs are protected from overwrite.
@@ -15,6 +15,18 @@ Every export dialog includes an output folder, optional filename and format chec
 **Remove black footer** defaults to Yes: after reading the original scale, the separate black annotation strip is cropped off and the new scale is placed on the remaining microscopy image. This changes output height but preserves microscopy pixels and physical calibration. No/`--keep-original-footer` keeps the old strip. Images without a separate black footer are not automatically cropped; their original annotation is cleared locally with an erase box.
 
 All settings tabs scroll vertically with the wheel/trackpad or scrollbar. Load sample generates a temporary **synthetic demonstration**, not experimental measurements.
+
+In **Size → Distribution on TEM**, enable the overlay after selecting the correct CSV. Choose the panel width, X/Y position and white/transparent background. Drag the panel to move it, or its lower-right handle to resize. Overlay position/size are stored per TIFF; CSV and histogram settings currently use the shared selection. The header identifies both the current TIFF and chart CSV. Overlays can cover particles or the scale bar; check placement before export. Turn the overlay off for a TEM-only export. UI scaling and preview zoom never change output dimensions or calibration.
+
+The default compact overlay uses red bars, a blue curve and a white plot area with transparent margins (`plot only`). Blank X/Y selects the lower-right area, moving above the main annotation when it overlaps. Edit colors with **Choose…** or a color/hex value. Bar, curve and background opacity are independently adjustable from 0 to 1 and also apply to standalone distribution exports. `density` uses probability density (histogram area = 1), while Count and Frequency (%) remain available. CLI: `--overlay-bar-color '#ff5555' --overlay-curve-color '#203bff' --overlay-bar-alpha 0.65 --overlay-curve-alpha 1 --overlay-background-alpha 1 --y-mode density`.
+
+Dragging the center divider shows a guide line without resizing the panes or resampling the TEM. Release applies the layout once, displays a cached low-resolution image, then loads the clear preview. Resizing the window similarly waits for a short pause. This keeps layout and expensive rendering out of the drag event loop.
+
+Vector/composite CLI example (replace the calibration with your image's value):
+
+```sh
+python outputs/tem_scalebar_distribution.py --tiff sample.tif --csv diameters.csv --nm-per-pixel 0.8 --overlay-distribution --overlay-width 800 --overlay-x 30 --overlay-y 30 --overlay-background white --tem-formats png svg pdf --distribution-formats svg pdf
+```
 
 ## Command line
 

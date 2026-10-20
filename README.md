@@ -1,11 +1,13 @@
-# graph tool
+# TEM Graph tool
 
-graph tool is a desktop application for clean TEM scale bars and particle-size distribution plots on Windows and macOS.
+TEM Graph tool is a desktop application for clean TEM scale bars and particle-size distribution plots on Windows and macOS.
 
 - Calibrate each TIFF independently from physical metadata or its original scale bar.
 - Overlay a large, draggable scale bar with adjustable position, nm length, font size, thickness and black/white color.
 - Import diameter CSV data and plot histograms with Gaussian fits, mean/std and N.
-- Export TIFF, PNG and PDF; preserve original input files.
+- Overlay a movable, resizable vector histogram on TEM; edit colors, opacity and label sizes.
+- Export TIFF, PNG, SVG and PDF; preserve original input files.
+- Light/dark themes, UI scaling and preview zoom; guide-line divider preview avoids live pane relayout.
 - Scroll settings in small windows and save projects.
 - Check GitHub Releases for signed updates and install with restart/rollback support.
 

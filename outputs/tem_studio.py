@@ -30,19 +30,23 @@ class ScrollableTab(ttk.Frame):
         super().__init__(parent)
         self.canvas = tk.Canvas(self, highlightthickness=0, bg='#f3f5f8', width=405)
         bar = ttk.Scrollbar(self, orient='vertical', command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=bar.set)
-        bar.pack(side='right', fill='y')
-        self.canvas.pack(side='left', fill='both', expand=True)
+        horizontal = ttk.Scrollbar(self, orient='horizontal', command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=bar.set, xscrollcommand=horizontal.set)
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        bar.grid(row=0, column=1, sticky='ns')
+        horizontal.grid(row=1, column=0, sticky='ew')
+        self.canvas.grid(row=0, column=0, sticky='nsew')
         self.content = ttk.Frame(self.canvas, padding=12)
         self.window_id = self.canvas.create_window(0, 0, anchor='nw', window=self.content)
         self.content.bind('<Configure>', self.update_region)
         self.canvas.bind('<Configure>', self.resize_content)
 
     def update_region(self, _=None):
+        self.canvas.itemconfigure(self.window_id, width=max(self.canvas.winfo_width(), self.content.winfo_reqwidth()))
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
 
     def resize_content(self, event):
-        self.canvas.itemconfigure(self.window_id, width=event.width)
         self.update_region()
 
     def wheel(self, event):
@@ -92,15 +96,18 @@ class TEMStudio(tk.Tk):
             self.iconphoto(True, self.app_icon)
         except tk.TclError:
             pass  # macOS also uses the application's bundled ICNS.
-        style = ttk.Style(self)
-        style.theme_use('clam')
-        style.configure('TFrame', background='#f3f5f8')
-        style.configure('TLabel', background='#f3f5f8', font=('Segoe UI', 10))
-        style.configure('TLabelframe', background='#f3f5f8')
-        style.configure('TLabelframe.Label', font=('Segoe UI', 10, 'bold'))
-        style.configure('TButton', font=('Segoe UI', 10), padding=5)
-        style.configure('Accent.TButton', background='#225e9b', foreground='white')
+        from ui_appearance import Appearance
+        self.appearance = Appearance(self, updater.data_directory()/'appearance.json' if enable_updates else None)
+        self.preview_zoom = None  # None means fit; otherwise image pixels to screen pixels.
+        self.preview_pan = (0, 0)
+        self.render_pending = None
+        self.render_key = None
+        self.image_item = None
+        self.viewport_context = None
+        self.resizing_panes = False
+        self.display_source = None
         self.build()
+        self.appearance.apply()
         if panel:
             panel.step(100, 'Ready')
             panel.close()
@@ -138,14 +145,27 @@ class TEMStudio(tk.Tk):
         header.pack(fill='x')
         self.header_icon = ImageTk.PhotoImage(Image.open(Path(__file__).with_name('assets')/'graph-tool-icon.png').resize((42, 42), Image.Resampling.LANCZOS))
         ttk.Label(header, image=self.header_icon).pack(side='left', padx=(0, 8))
-        ttk.Label(header, text=APP_NAME, font=('Segoe UI', 20, 'bold')).pack(side='left')
-        ttk.Label(header, text='Scale bar editor  /  Size distribution', foreground='#65758b').pack(side='left', padx=20)
+        ttk.Label(header, text=APP_NAME, style='Title.TLabel').pack(side='left')
+        appearance = ttk.Frame(header)
+        appearance.pack(side='right')
+        ttk.Label(appearance, text='Theme', style='Muted.TLabel').pack(side='left', padx=5)
+        theme = ttk.Combobox(appearance, textvariable=self.appearance.theme, values=('Light', 'Dark'), state='readonly', width=6)
+        theme.pack(side='left')
+        theme.bind('<<ComboboxSelected>>', self.appearance.apply)
+        ttk.Label(appearance, text='UI size', style='Muted.TLabel').pack(side='left', padx=5)
+        sizing = ttk.Combobox(appearance, textvariable=self.appearance.scale, values=self.appearance.sizes, state='readonly', width=6)
+        sizing.pack(side='left')
+        sizing.bind('<<ComboboxSelected>>', self.appearance.apply)
         exports = ttk.Frame(self, padding=(18, 0, 18, 8))
         exports.pack(fill='x')
         ttk.Button(exports, text='Export TEM image…', style='Accent.TButton', command=self.export_tem).pack(side='left')
         ttk.Button(exports, text='Export size distribution…', command=self.export_distribution).pack(side='left', padx=8)
         ttk.Button(exports, text='Batch export TEM…', command=self.export_all).pack(side='left')
         body = ttk.Panedwindow(self, orient='horizontal')
+        self.panes = body
+        body.bind('<ButtonPress-1>', lambda e: self.begin_pane_resize(body, e))
+        body.bind('<B1-Motion>', self.preview_pane_resize)
+        body.bind('<ButtonRelease-1>', self.end_pane_resize)
         body.pack(fill='both', expand=True, padx=12)
         left = ttk.Frame(body, width=425)
         body.add(left, weight=0)
@@ -154,12 +174,12 @@ class TEMStudio(tk.Tk):
         tabs = ttk.Notebook(left)
         tabs.pack(fill='both', expand=True)
         self.scroll_tabs = [ScrollableTab(tabs) for _ in range(3)]
-        for tab, label in zip(self.scroll_tabs, ('Data & calibration', 'Scale bar', 'Distribution')):
+        for tab, label in zip(self.scroll_tabs, ('Data', 'Scale bar', 'Size')):
             tabs.add(tab, text=label)
         data, layout, dist = [tab.content for tab in self.scroll_tabs]
         inset_tab = ScrollableTab(tabs)
         self.scroll_tabs.append(inset_tab)
-        tabs.add(inset_tab, text='Inset zoom')
+        tabs.add(inset_tab, text='Inset')
         inset = inset_tab.content
         self.field(inset, 'Show inset', 'inset_enabled', 'No', ['No', 'Yes'])
         ttk.Button(inset, text='Select source region on image', command=lambda: self.tool('inset')).pack(fill='x', pady=8)
@@ -216,8 +236,8 @@ class TEMStudio(tk.Tk):
         self.field(layout, 'Length (nm; blank=original)', 'bar_nm', '')
         self.field(layout, 'Auto target width (px)', 'target_width', '500')
         self.field(layout, 'Color', 'color', 'white', ['white', 'black'])
-        self.field(layout, 'Line thickness (px)', 'thickness', '18')
-        self.field(layout, 'Font size (px)', 'font_size', '64')
+        self.field(layout, 'Line thickness (px)', 'thickness', '36')
+        self.field(layout, 'Font size (px)', 'font_size', '128')
         self.field(layout, 'Corner preset', 'corner', 'bottom-right', ['bottom-right', 'bottom-left', 'top-right', 'top-left'])
         self.field(layout, 'Margin (px)', 'margin', '110')
         self.field(layout, 'Label position', 'label_position', 'above', ['above', 'below'])
@@ -234,33 +254,84 @@ class TEMStudio(tk.Tk):
         self.column_widget = self.field(dist, 'Diameter column (nm)', 'column', 'diameter_nm', ['diameter_nm'])
         self.field(dist, 'Number of bins', 'bins', '12')
         self.field(dist, 'Bin width (nm; optional)', 'bin_width')
-        self.field(dist, 'Y axis', 'y_mode', 'count', ['count', 'frequency'])
+        self.field(dist, 'Y axis', 'y_mode', 'count', ['count', 'frequency', 'density'])
         self.field(dist, 'Export DPI (≥300)', 'dpi', '300')
         self.pdf = tk.BooleanVar(value=True)
         ttk.Checkbutton(dist, text='Also export PDF', variable=self.pdf).pack(anchor='w', pady=8)
         ttk.Button(dist, text='Preview distribution', command=self.refresh_distribution).pack(fill='x')
+        ttk.Separator(dist).pack(fill='x', pady=12)
+        ttk.Label(dist, text='Distribution on TEM', font=('Segoe UI', 12, 'bold')).pack(anchor='w')
+        self.field(dist, 'Overlay on TEM', 'overlay_enabled', 'No', ['No', 'Yes'])
+        self.field(dist, 'Chart width (image px)', 'overlay_width', '800')
+        self.field(dist, 'Chart X (blank=auto)', 'overlay_x', '')
+        self.field(dist, 'Chart Y (blank=auto)', 'overlay_y', '')
+        self.field(dist, 'Chart background', 'overlay_background', 'plot only', ['plot only', 'white', 'transparent'])
+        self.color_field(dist, 'Histogram color', 'overlay_bar_color', '#ff5555')
+        self.field(dist, 'Bar opacity (0–1)', 'overlay_bar_alpha', '.65')
+        self.color_field(dist, 'Gaussian curve color', 'overlay_curve_color', '#203bff')
+        self.field(dist, 'Curve opacity (0–1)', 'overlay_curve_alpha', '1')
+        self.field(dist, 'Background opacity (0–1)', 'overlay_background_alpha', '1')
+        self.field(dist, 'Axis label size (pt)', 'overlay_label_size', '10')
+        self.field(dist, 'Tick label size (pt)', 'overlay_tick_size', '10')
+        self.field(dist, 'Mean / std / N size (pt)', 'overlay_stats_size', '10')
+        ttk.Button(dist, text='Show overlay in TEM preview', command=self.refresh_tem).pack(fill='x', pady=6)
+        ttk.Label(dist, text='Uses the selected CSV. Drag the chart to move it; drag its lower-right corner to resize. Export SVG / PDF to keep the chart as vectors; TEM pixels remain an image.', wraplength=375, style='Muted.TLabel').pack(anchor='w', pady=8)
         ttk.Label(dist, text='Gaussian maximum-likelihood fit; std uses ddof=0. No particle segmentation or diameter extraction.', wraplength=375, foreground='#65758b').pack(anchor='w', pady=12)
 
+        self.file_hint = tk.StringVar(value='No TIFF selected')
+        source_label = ttk.Label(right, textvariable=self.file_hint, padding=(10, 6), anchor='w')
+        source_label.pack(fill='x')
+        source_label.bind('<Configure>', lambda e: source_label.configure(wraplength=max(100, e.width-20)))
         toolbar = ttk.Frame(right, padding=(8, 0, 0, 8))
         toolbar.pack(fill='x')
         ttk.Button(toolbar, text='TEM preview', command=self.refresh_tem).pack(side='left')
         ttk.Button(toolbar, text='Original', command=self.show_original).pack(side='left', padx=5)
         ttk.Button(toolbar, text='Distribution', command=self.refresh_distribution).pack(side='left')
         self.mode = tk.StringVar(value='move')
-        ttk.Label(toolbar, text='Drag bar to move · fit view').pack(side='right')
+        zoomtools = ttk.Frame(right, padding=(8, 0, 0, 8))
+        zoomtools.pack(fill='x')
+        ttk.Button(zoomtools, text='−', width=3, command=lambda: self.zoom_preview(0.8)).pack(side='left')
+        self.zoom_hint = tk.StringVar(value='Fit')
+        ttk.Label(zoomtools, textvariable=self.zoom_hint, width=10, anchor='center').pack(side='left')
+        ttk.Button(zoomtools, text='+', width=3, command=lambda: self.zoom_preview(1.25)).pack(side='left')
+        ttk.Button(zoomtools, text='Fit', command=self.fit_preview).pack(side='left', padx=5)
+        ttk.Label(zoomtools, text='Drag bar to move · right-drag to pan', style='Muted.TLabel').pack(side='left')
         self.canvas = tk.Canvas(right, bg='#202833', highlightthickness=0, cursor='hand2')
         self.canvas.pack(fill='both', expand=True, padx=(8, 0))
-        self.canvas.bind('<Configure>', lambda e: self.draw_preview())
+        self.canvas.bind('<Configure>', self.schedule_preview)
+        self.canvas.bind('<ButtonPress-3>', self.pan_start)
+        self.canvas.bind('<B3-Motion>', self.pan_motion)
+        self.canvas.bind('<ButtonPress-2>', self.pan_start)
+        self.canvas.bind('<B2-Motion>', self.pan_motion)
         self.canvas.bind('<ButtonPress-1>', self.press)
         self.canvas.bind('<B1-Motion>', self.motion)
         self.canvas.bind('<ButtonRelease-1>', self.release)
         self.info = tk.StringVar(value='Add a TIFF or open a CSV to begin.')
         ttk.Label(right, textvariable=self.info, wraplength=850, padding=8).pack(fill='x')
         self.status = tk.StringVar(value='Ready · Original files are preserved')
+        progress_row = ttk.Frame(self, padding=(16, 4))
+        progress_row.pack(fill='x')
+        self.overlay_progress = tk.DoubleVar(value=0)
+        self.overlay_progress_text = tk.StringVar(value='Overlay idle')
+        ttk.Label(progress_row, textvariable=self.overlay_progress_text).pack(side='left', padx=(0, 12))
+        ttk.Progressbar(progress_row, variable=self.overlay_progress, maximum=100).pack(side='right', fill='x', expand=True)
         ttk.Label(self, textvariable=self.status, padding=(16, 8), relief='sunken').pack(fill='x')
 
     def image_state(self):
         return {k: v.get() for k, v in self.vars.items() if k not in {'column', 'bins', 'bin_width', 'y_mode', 'dpi'}}
+
+    def color_field(self, parent, label, key, default):
+        entry = self.field(parent, label, key, default)
+        entry.configure(width=12)
+        for widget in entry.master.winfo_children():
+            if isinstance(widget, ttk.Label):
+                widget.configure(width=20)
+        def choose():
+            from tkinter.colorchooser import askcolor
+            result = askcolor(self.vars[key].get(), title=label, parent=self)[1]
+            if result:
+                self.vars[key].set(result)
+        ttk.Button(entry.master, text='Choose…', command=choose).pack(side='right', padx=3)
 
     def scroll_left(self, event):
         # Route wheel events from descendants only; the image preview is unaffected.
@@ -317,11 +388,14 @@ class TEMStudio(tk.Tk):
     def default_image_settings():
         return dict(cal_mode='Auto measure bar', original_bar_nm='', original_unit='nm', match_original='true', original_bar_px='', nm_per_pixel='',
                         erase_box='', background='Auto', remove_footer='Yes', original_corner='bottom-right', bar_nm='', target_width='500',
-                        color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
+                        color='white', thickness='36', font_size='128', corner='bottom-right', margin='110',
                         label_position='above', gap='12', bar_x='', bar_y='',
                         inset_enabled='No', inset_roi='', inset_width='500', inset_x='', inset_y='',
                         inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='',
-                        inset_connector_width='4', inset_connector_color='white', inset_show_scalebar='Yes')
+                        inset_connector_width='4', inset_connector_color='white', inset_show_scalebar='Yes',
+                        overlay_enabled='No', overlay_width='800', overlay_x='', overlay_y='', overlay_background='plot only',
+                        overlay_bar_color='#ff5555', overlay_curve_color='#203bff', overlay_bar_alpha='.65', overlay_curve_alpha='1', overlay_background_alpha='1',
+                        overlay_label_size='10', overlay_tick_size='10', overlay_stats_size='10')
 
     def select_file(self, _=None):
         indices = self.listbox.curselection()
@@ -353,6 +427,9 @@ class TEMStudio(tk.Tk):
             self.preview_image = None
             self.report = None
             self.canvas.delete('all')
+            self.image_item = None
+            self.render_key = None
+            self.file_hint.set('No TIFF selected')
 
     def sample(self):
         # Synthetic demonstration only; never bundle the user's research data.
@@ -419,12 +496,25 @@ class TEMStudio(tk.Tk):
         a.inset_connector_color = s.get('inset_connector_color', 'white')
         a.inset_bar_nm = core.positive(s['inset_bar_nm']) if s.get('inset_bar_nm', '').strip() else None
         a.inset_no_scalebar = s.get('inset_show_scalebar', 'Yes') == 'No'
+        a.overlay_distribution = s.get('overlay_enabled', 'No') == 'Yes'
+        a.overlay_width = int(s.get('overlay_width', '800'))
+        a.overlay_x = int(s['overlay_x']) if s.get('overlay_x', '').strip() else None
+        a.overlay_y = int(s['overlay_y']) if s.get('overlay_y', '').strip() else None
+        a.overlay_background = s.get('overlay_background', 'plot only')
+        self.chart_style(a, s)
+        if a.overlay_distribution:
+            a.progress = self.update_overlay_progress
+            dist = self.dist_args(out or self.temp.name)
+            for key in ('csv', 'column', 'bins', 'bin_width', 'y_mode'):
+                setattr(a, key, getattr(dist, key))
         a.output_dir = Path(out or self.temp.name)
         a.protected_inputs = list(self.files)
         a.output_dir.mkdir(parents=True, exist_ok=True)
         return a
 
     def fail(self, e, quiet=False):
+        if 0 < self.overlay_progress.get() < 100:
+            self.overlay_progress_text.set('Overlay stopped · '+str(e))
         self.status.set(str(e))
         if not quiet:
             messagebox.showerror('Please check settings', str(e))
@@ -459,6 +549,8 @@ class TEMStudio(tk.Tk):
             if 'selected unit' in (r.get('recognized_scale_text') or ''):
                 self.status.set('Number recognized; unit text unreadable. Using selected '+self.vars['original_unit'].get()+'. Please verify the unit.')
             self.draw_preview()
+            if self.report.get('distribution_overlay'):
+                self.update_overlay_progress(100, 'Overlay preview ready')
         except Exception as e:
             self.report = None
             try:
@@ -490,22 +582,132 @@ class TEMStudio(tk.Tk):
         self.info.set('Original image · Use two-point measurement or draw an erase box from Data & calibration.')
         self.draw_preview()
 
-    def draw_preview(self):
+    def draw_preview(self, quick=False):
+        if self.view == 'distribution':
+            self.file_hint.set('Distribution CSV: ' + (self.csv_path.name if self.csv_path else 'None'))
+        else:
+            hint = 'Current TIFF: ' + (self.current.name if self.current else 'None')
+            if self.view == 'tem' and self.report and self.report.get('distribution_overlay'):
+                hint += '  |  Chart CSV: ' + Path(self.report['distribution_overlay']['csv']).name
+            self.file_hint.set(hint)
         if self.preview_image is None:
             return
         w, h = self.preview_image.size
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
-        scale = min(max(cw-24, 1)/w, max(ch-24, 1)/h)
-        size = (max(1, round(w*scale)), max(1, round(h*scale)))
-        ox, oy = (cw-size[0])/2, (ch-size[1])/2
+        if cw < 2 or ch < 2:
+            return
+        context = (str(self.current) if self.view != 'distribution' else str(self.csv_path), self.view, w, h)
+        if context != self.viewport_context:
+            self.preview_zoom, self.preview_pan = None, (0, 0)
+            self.viewport_context = context
+        scale = self.preview_zoom or min(max(cw-24, 1)/w, max(ch-24, 1)/h)
+        ox, oy = (cw-w*scale)/2 + self.preview_pan[0], (ch-h*scale)/2 + self.preview_pan[1]
         self.transform = (scale, ox, oy)
-        self.photo = ImageTk.PhotoImage(self.preview_image.resize(size, Image.Resampling.LANCZOS))
-        self.canvas.delete('all')
-        self.canvas.create_image(ox, oy, anchor='nw', image=self.photo)
+        self.zoom_hint.set(('Fit · ' if self.preview_zoom is None else '') + f'{scale*100:.0f}%')
+        key = (id(self.preview_image), cw, ch, scale, ox, oy, self.view)
+        if key == self.render_key and not quick:
+            return
+        # Render only the visible viewport, so zooming never allocates a giant image.
+        if self.display_source is not self.preview_image:
+            self.display_source = self.preview_image
+            self.display_rgb = self.preview_image.convert('RGB')
+            self.display_thumbnail = self.display_rgb.copy()
+            self.display_thumbnail.thumbnail((768, 768), Image.Resampling.BILINEAR)
+        source = self.display_rgb
+        sampling = 1
+        if quick:
+            source = self.display_thumbnail
+            sampling = source.width / self.preview_image.width
+        viewport = source.transform((cw, ch), Image.Transform.AFFINE,
+                                    (sampling/scale, 0, -ox*sampling/scale, 0, sampling/scale, -oy*sampling/scale),
+                                    resample=Image.Resampling.BILINEAR if quick else Image.Resampling.BICUBIC, fillcolor='#202833')
+        photo = ImageTk.PhotoImage(viewport)
+        if self.image_item is None:
+            self.image_item = self.canvas.create_image(0, 0, anchor='nw', image=photo)
+        else:
+            self.canvas.itemconfigure(self.image_item, image=photo)
+        self.photo = photo
+        self.render_source = self.preview_image  # Keep identity alive for the cache.
+        self.render_key = None if quick else key
+        self.canvas.delete('inset_handle')
+        if self.view == 'tem' and self.report and self.report.get('distribution_overlay'):
+            x0, y0, x1, y1 = self.report['distribution_overlay']['box']
+            self.canvas.create_rectangle(ox+x1*scale-9, oy+y1*scale-9,
+                ox+x1*scale, oy+y1*scale, fill='#62c9ee', outline='#202833', tags='inset_handle')
         if self.view == 'tem' and self.report and self.report.get('inset'):
             x0, y0, x1, y1 = self.report['inset']['box']
             self.canvas.create_rectangle(ox+x1*scale-9, oy+y1*scale-9,
-                                         ox+x1*scale, oy+y1*scale, fill='#ffca3a', outline='#202833')
+                                         ox+x1*scale, oy+y1*scale, fill='#ffca3a', outline='#202833', tags='inset_handle')
+
+    def schedule_preview(self, _=None):
+        if self.render_pending is not None:
+            self.after_cancel(self.render_pending)
+            self.render_pending = None
+        if not self.resizing_panes:
+            self.render_pending = self.after(180, self.flush_preview)
+
+    def begin_pane_resize(self, body, event):
+        sash = body.identify(event.x, event.y)
+        self.resizing_panes = sash != ''
+        if not self.resizing_panes:
+            return
+        self.pane_sash = int(sash)
+        self.pane_target = body.sashpos(self.pane_sash)
+        self.pane_origin = (event.x, self.pane_target)
+        self.pane_guide = tk.Frame(body, background='#529ce8', cursor='sb_h_double_arrow')
+        self.pane_guide.place(x=self.pane_target, y=0, width=3, relheight=1)
+        if self.resizing_panes and self.render_pending is not None:
+            self.after_cancel(self.render_pending)
+            self.render_pending = None
+        # Stop ttk's opaque drag: otherwise every mouse move relayouts all controls.
+        return 'break'
+
+    def preview_pane_resize(self, event):
+        if not self.resizing_panes:
+            return
+        self.pane_target = max(240, min(self.panes.winfo_width()-220,
+            self.pane_origin[1] + event.x-self.pane_origin[0]))
+        self.pane_guide.place_configure(x=self.pane_target)
+        return 'break'
+
+    def end_pane_resize(self, _=None):
+        if not self.resizing_panes:
+            return
+        self.resizing_panes = False
+        self.pane_guide.destroy()
+        self.panes.sashpos(self.pane_sash, self.pane_target)
+        self.after_idle(self.load_pane_preview)
+        return 'break'
+
+    def load_pane_preview(self):
+        self.draw_preview(quick=True)
+        self.schedule_preview()
+
+    def flush_preview(self):
+        self.render_pending = None
+        self.draw_preview()
+
+    def fit_preview(self):
+        self.preview_zoom, self.preview_pan = None, (0, 0)
+        self.draw_preview()
+
+    def zoom_preview(self, factor):
+        if self.preview_image is None:
+            return
+        self.preview_zoom = max(0.02, min(8.0, self.transform[0] * factor))
+        ratio = self.preview_zoom / self.transform[0]
+        self.preview_pan = tuple(v * ratio for v in self.preview_pan)
+        self.draw_preview()
+
+    def pan_start(self, event):
+        self.pan_anchor = (event.x, event.y, self.preview_pan)
+
+    def pan_motion(self, event):
+        if self.preview_image is None or not hasattr(self, 'pan_anchor'):
+            return
+        x, y, offset = self.pan_anchor
+        self.preview_pan = (offset[0] + event.x-x, offset[1] + event.y-y)
+        self.draw_preview()
 
     def point(self, event):
         scale, ox, oy = self.transform
@@ -530,6 +732,14 @@ class TEMStudio(tk.Tk):
         if self.mode.get() in ('measure', 'erase', 'inset'):
             self.drag = (point, (event.x, event.y))
         elif self.view == 'tem' and self.report:
+            overlay = self.report.get('distribution_overlay')
+            if overlay:
+                x0, y0, x1, y1 = overlay['box']
+                if x0 <= point[0] < x1 and y0 <= point[1] < y1:
+                    tolerance = 16/self.transform[0]
+                    self.mode.set('resize_chart' if x1-point[0] < tolerance and y1-point[1] < tolerance else 'move_chart')
+                    self.drag = (point, (x0, y0))
+                    return
             inset = self.report.get('inset')
             if inset:
                 x0, y0, x1, y1 = inset['box']
@@ -557,8 +767,9 @@ class TEMStudio(tk.Tk):
             x = self.drag[1][0]+point[0]-self.drag[0][0]
             y = self.drag[1][1]+point[1]-self.drag[0][1]
             scale, ox, oy = self.transform
-            box = self.report['inset']['box'] if self.mode.get() in ('move_inset', 'resize_inset') else self.report['annotation_box']
-            if self.mode.get() == 'resize_inset':
+            box = (self.report['distribution_overlay']['box'] if self.mode.get() in ('move_chart', 'resize_chart') else
+                   self.report['inset']['box'] if self.mode.get() in ('move_inset', 'resize_inset') else self.report['annotation_box'])
+            if self.mode.get() in ('resize_inset', 'resize_chart'):
                 x, y = box[:2]
                 width = max(80, point[0]-x)
                 box = [x, y, x+width, y+round(width*(box[3]-box[1])/(box[2]-box[0]))]
@@ -595,6 +806,19 @@ class TEMStudio(tk.Tk):
                     self.vars['inset_width'].set(str(width))
                     self.vars['inset_x'].set(str(max(0, w-width-20)))
                     self.vars['inset_y'].set('20')
+            elif self.mode.get() in ('move_chart', 'resize_chart'):
+                box = self.report['distribution_overlay']['box']
+                w, h = self.preview_image.size
+                width, height = box[2]-box[0], box[3]-box[1]
+                x, y = other
+                if self.mode.get() == 'resize_chart':
+                    width = max(160, min(point[0]-x, w-x, int((h-y)/.75)))
+                    self.vars['overlay_width'].set(str(width))
+                else:
+                    x = max(0, min(w-width, x+point[0]-start[0]))
+                    y = max(0, min(h-height, y+point[1]-start[1]))
+                self.vars['overlay_x'].set(str(x))
+                self.vars['overlay_y'].set(str(y))
             elif self.mode.get() in ('move_inset', 'resize_inset'):
                 box = self.report['inset']['box']
                 w, h = self.preview_image.size
@@ -664,9 +888,34 @@ class TEMStudio(tk.Tk):
         a.dpi = int(self.vars['dpi'].get())
         a.pdf = self.pdf.get()
         a.output_dir = Path(out)
+        self.chart_style(a, self.image_state())
         if a.bins < 1 or a.dpi < 300:
             raise ValueError('Bins must be positive; DPI must be at least 300')
         return a
+
+    @staticmethod
+    def chart_style(args, state):
+        from matplotlib.colors import is_color_like
+        for key, default in (('overlay_bar_color', '#ff5555'), ('overlay_curve_color', '#203bff')):
+            value = state.get(key, default)
+            if not is_color_like(value):
+                raise ValueError('Choose a valid histogram / curve color')
+            setattr(args, key, value)
+        for key in ('overlay_label_size', 'overlay_tick_size', 'overlay_stats_size'):
+            value = float(state.get(key, '10'))
+            if not 0 < value <= 100:
+                raise ValueError('Overlay font sizes must be between 0 and 100 pt')
+            setattr(args, key, value)
+        for key, default in (('overlay_bar_alpha', '.65'), ('overlay_curve_alpha', '1'), ('overlay_background_alpha', '1')):
+            value = float(state.get(key, default))
+            if not 0 <= value <= 1:
+                raise ValueError('Opacity must be between 0 and 1')
+            setattr(args, key, value)
+
+    def update_overlay_progress(self, value, message):
+        self.overlay_progress.set(value)
+        self.overlay_progress_text.set(f'{value:.0f}% · {message}')
+        self.update_idletasks()
 
     def refresh_distribution(self, quiet=False):
         try:
@@ -738,7 +987,7 @@ class TEMStudio(tk.Tk):
             from collections import Counter
             files = [Path(path).resolve() for path in options['files']]
             counts = Counter(p.stem.casefold() for p in files)
-            prefix = core.export_stem('.', options['name'], 'batch', {'.png', '.tif', '.tiff'}).name if options['name'] else None
+            prefix = core.export_stem('.', options['name'], 'batch', {'.png', '.tif', '.tiff', '.pdf', '.svg'}).name if options['name'] else None
             # Validate every image before writing any output.
             jobs = []
             for index, path in enumerate(files, 1):
@@ -865,6 +1114,8 @@ class TEMStudio(tk.Tk):
     def close(self):
         if self.pending:
             self.after_cancel(self.pending)
+        if self.render_pending:
+            self.after_cancel(self.render_pending)
         self.temp.cleanup()
         self.destroy()
 
@@ -989,6 +1240,22 @@ def packaged_self_test(report_path, startup_callback=None):
         if not (folder/'only_size_png.png').exists() or (folder/'only_size_png.pdf').exists():
             raise RuntimeError('PNG-only distribution export failed')
         checks.append('format selection: TEM PNG-only, TIFF-only, distribution PNG-only passed')
+        vector_args = copy.copy(inset_args)
+        vector_args.csv = csv_path
+        vector_args.column = 'diameter_nm'
+        vector_args.overlay_distribution = True
+        vector_args.overlay_width = 400
+        vector_args.overlay_x = vector_args.overlay_y = 20
+        vector_args.tem_name = 'vector_overlay'
+        vector_args.tem_formats = ['svg', 'pdf', 'png']
+        vector_report = core.redraw(inset_source, vector_args)
+        import xml.etree.ElementTree as ET
+        svg = ET.parse(folder/'vector_overlay.svg')
+        if len(svg.findall('.//{http://www.w3.org/2000/svg}image')) != 1:
+            raise RuntimeError('Composite SVG should contain one TEM raster and a vector chart')
+        if vector_report['distribution_overlay']['N'] != 7:
+            raise RuntimeError('Composite chart statistics incorrect')
+        checks.append('TEM distribution overlay: PNG + vector PDF/SVG, 7 values passed')
         result = {'success': True, 'version': __version__, 'application_name': APP_NAME,
                   'startup_progress': {'steps': app.startup_steps, 'completed': app.startup_steps[-1:] == [100]},
                   'application_icon': 'loaded', 'frozen': bool(getattr(sys, 'frozen', False)),

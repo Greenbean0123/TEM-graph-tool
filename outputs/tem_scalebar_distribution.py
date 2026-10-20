@@ -13,9 +13,11 @@ from PIL import Image, ImageDraw, ImageFont
 from scipy.stats import norm
 import matplotlib
 matplotlib.use('Agg')
+matplotlib.rcParams.update({'svg.fonttype': 'none', 'pdf.fonttype': 42})
 import matplotlib.pyplot as plt
 # Explicit import also makes the optional PDF writer visible to PyInstaller.
 from matplotlib.backends import backend_pdf  # noqa: F401
+from matplotlib.backends import backend_svg  # noqa: F401
 
 
 def positive(s):
@@ -86,7 +88,14 @@ def export_formats(formats, allowed):
     return formats
 
 
+def progress(args, value, message):
+    callback = getattr(args, 'progress', None)
+    if callback:
+        callback(value, message)
+
+
 def redraw(path, args, render_only=False):
+    progress(args, 5, 'Reading TEM image')
     with tifffile.TiffFile(path) as tf:
         if len(tf.pages) != 1:
             raise ValueError('Only single-frame TIFF supported; export the desired frame first')
@@ -95,6 +104,7 @@ def redraw(path, args, render_only=False):
     if a.dtype != np.uint8 or a.ndim not in (2, 3) or (a.ndim == 3 and a.shape[2] != 3):
         raise ValueError('Use uint8 grayscale or RGB TIFF; other bit depths require explicit conversion')
     measured_pixels = None
+    progress(args, 15, 'Calibrating original scale bar')
     recognized_text = None
     label_reader = None
     if scale is None and args.measure_original_bar:
@@ -228,8 +238,8 @@ def redraw(path, args, render_only=False):
         color = (color,)*3
     draw.rectangle((bx, by, bx+pixels-1, by+args.thickness-1), fill=color)
     draw.text((left+(bw-tw)/2-tb[0], ty-tb[1]), label, font=font, fill=color)
-    out = export_stem(args.output_dir, getattr(args, 'tem_name', None), path.stem+'_scalebar', {'.tif', '.tiff', '.png'})
-    formats = export_formats(getattr(args, 'tem_formats', ['png', 'tif']), ['png', 'tif'])
+    out = export_stem(args.output_dir, getattr(args, 'tem_name', None), path.stem+'_scalebar', {'.tif', '.tiff', '.png', '.pdf', '.svg'})
+    formats = export_formats(getattr(args, 'tem_formats', ['png', 'tif']), ['png', 'tif', 'pdf', 'svg'])
     protected = {Path(p).resolve() for p in (getattr(args, 'protected_inputs', None) or getattr(args, 'tiff', None) or [])}
     protected.add(path.resolve())
     if any(Path(str(out)+'.'+extension).resolve() in protected for extension in formats):
@@ -250,20 +260,29 @@ def redraw(path, args, render_only=False):
             args.inset_width, position, args.inset_color, args.inset_border,
             not args.inset_no_connector, args.inset_bar_nm,
             args.inset_connector_width, args.inset_connector_color, not args.inset_no_scalebar)
+    base = im
+    progress(args, 30, 'TEM scale bar and inset ready')
+    if getattr(args, 'overlay_distribution', False):
+        from distribution_overlay import compose
+        im, report['distribution_overlay'] = compose(im, args, report['annotation_box'])
     if render_only:
+        progress(args, 90, 'Overlay composed; preparing preview')
         return im, report
+    progress(args, 85, 'Writing image files')
     result = np.asarray(im)
     if 'tif' in formats:
-        tifffile.imwrite(str(out)+'.tif', result, metadata={'nm_per_pixel': scale}, photometric='minisblack' if a.ndim == 2 else 'rgb')
+        tifffile.imwrite(str(out)+'.tif', result, metadata={'nm_per_pixel': scale}, photometric='minisblack' if result.ndim == 2 else 'rgb')
     if 'png' in formats:
         im.save(str(out)+'.png')
+    if any(ext in formats for ext in ('pdf', 'svg')):
+        progress(args, 90, 'Writing vector PDF / SVG')
+        from distribution_overlay import save_vector
+        save_vector(base, args, report.get('distribution_overlay'), out, formats)
+    progress(args, 100, 'Export complete')
     return report
 
 
-def distribution(args):
-    stem = export_stem(args.output_dir, getattr(args, 'distribution_name', None), 'size_distribution', {'.png', '.pdf'})
-    formats = getattr(args, 'distribution_formats', None)
-    formats = export_formats(formats if formats is not None else ['png']+(['pdf'] if args.pdf else []), ['png', 'pdf'])
+def distribution_figure(args):
     with args.csv.open(encoding='utf-8-sig', newline='') as f:
         reader = csv.DictReader(f)
         if args.column not in (reader.fieldnames or []):
@@ -290,24 +309,34 @@ def distribution(args):
         edges = start + np.arange(count+1)*args.bin_width
     n = len(data)
     fig, ax = plt.subplots(figsize=(6.4, 4.8), constrained_layout=True)
+    fig.patch.set_alpha(getattr(args, 'overlay_background_alpha', 1))
+    ax.patch.set_alpha(0)
     weights = np.full(n, 100/n) if args.y_mode == 'frequency' else None
-    ax.hist(data, bins=edges, weights=weights, color='#8dbbd4', edgecolor='white', label='Measured diameters')
+    ax.hist(data, bins=edges, weights=weights, density=args.y_mode == 'density', color=getattr(args, 'overlay_bar_color', '#ff5555'), edgecolor='white', alpha=getattr(args, 'overlay_bar_alpha', .65), label='Measured diameters')
     x = np.linspace(min(edges[0], mu-3.5*sigma), max(edges[-1], mu+3.5*sigma), 700)
-    multiplier = (100 if args.y_mode == 'frequency' else n)*np.diff(edges)[0]
-    ax.plot(x, norm.pdf(x, mu, sigma)*multiplier, color='#b74439', lw=2, label='Gaussian fit (MLE)')
+    multiplier = 1 if args.y_mode == 'density' else (100 if args.y_mode == 'frequency' else n)*np.diff(edges)[0]
+    ax.plot(x, norm.pdf(x, mu, sigma)*multiplier, color=getattr(args, 'overlay_curve_color', '#203bff'), alpha=getattr(args, 'overlay_curve_alpha', 1), lw=2, label='Gaussian fit (MLE)')
     ax.text(.97, .96, f'Mean ± std = {mu:.2f} ± {sigma:.2f} nm\nN = {n}', transform=ax.transAxes,
-            ha='right', va='top', bbox={'facecolor': 'white', 'alpha': .9, 'edgecolor': 'none'})
-    ax.set(xlabel='Diameter (nm)', ylabel='Frequency (%)' if args.y_mode == 'frequency' else 'Count')
+            ha='right', va='top', bbox={'facecolor': 'white', 'alpha': .9*getattr(args, 'overlay_background_alpha', 1), 'edgecolor': 'none'})
+    ax.set(xlabel='Diameter (nm)', ylabel='Probability density (1/nm)' if args.y_mode == 'density' else 'Frequency (%)' if args.y_mode == 'frequency' else 'Count')
     ax.set_ylim(bottom=0)
     ax.legend(loc='upper left', frameon=False)
     ax.spines[['top', 'right']].set_visible(False)
+    return fig, {'column': args.column, 'N': n, 'mean_nm': mu, 'std_nm': sigma,
+            'std_definition': 'population / Gaussian MLE, ddof=0', 'bin_edges': edges.tolist(), 'y_mode': args.y_mode}
+
+
+def distribution(args):
+    stem = export_stem(args.output_dir, getattr(args, 'distribution_name', None), 'size_distribution', {'.png', '.pdf', '.svg'})
+    formats = getattr(args, 'distribution_formats', None)
+    formats = export_formats(formats if formats is not None else ['png']+(['pdf'] if args.pdf else []), ['png', 'pdf', 'svg'])
+    fig, report = distribution_figure(args)
     try:
         for extension in formats:
             fig.savefig(str(stem)+'.'+extension, dpi=args.dpi)
     finally:
         plt.close(fig)
-    return {'output_stem': str(stem), 'output_files': [str(stem)+'.'+ext for ext in formats], 'column': args.column, 'N': n, 'mean_nm': mu, 'std_nm': sigma,
-            'std_definition': 'population / Gaussian MLE, ddof=0', 'bin_edges': edges.tolist(), 'y_mode': args.y_mode}
+    return dict(report, output_stem=str(stem), output_files=[str(stem)+'.'+ext for ext in formats])
 
 
 def create_parser():
@@ -318,8 +347,21 @@ def create_parser():
     p.add_argument('--output-dir', type=Path, default=Path('outputs'))
     p.add_argument('--tem-name', help='Single TEM export filename, without extension; blank uses input_scalebar')
     p.add_argument('--distribution-name', help='Distribution export filename; blank uses size_distribution')
-    p.add_argument('--tem-formats', nargs='+', choices=['png', 'tif'], default=['png', 'tif'])
-    p.add_argument('--distribution-formats', nargs='+', choices=['png', 'pdf'], help='Explicit formats; otherwise PNG plus optional --pdf')
+    p.add_argument('--tem-formats', nargs='+', choices=['png', 'tif', 'pdf', 'svg'], default=['png', 'tif'])
+    p.add_argument('--distribution-formats', nargs='+', choices=['png', 'pdf', 'svg'], help='Explicit formats; otherwise PNG plus optional --pdf')
+    p.add_argument('--overlay-distribution', action='store_true', help='Overlay CSV histogram on TEM; PDF/SVG retain vector chart elements')
+    p.add_argument('--overlay-width', type=int, default=800, help='Chart panel width in original TEM pixels')
+    p.add_argument('--overlay-x', type=int, help='Blank uses lower-right placement')
+    p.add_argument('--overlay-y', type=int, help='Blank uses lower-right placement, avoiding main scale bar')
+    p.add_argument('--overlay-background', choices=['white', 'transparent', 'plot only'], default='plot only')
+    p.add_argument('--overlay-bar-color', default='#ff5555')
+    p.add_argument('--overlay-curve-color', default='#203bff')
+    p.add_argument('--overlay-bar-alpha', type=float, default=.65)
+    p.add_argument('--overlay-curve-alpha', type=float, default=1)
+    p.add_argument('--overlay-background-alpha', type=float, default=1)
+    p.add_argument('--overlay-label-size', type=positive, default=10, help='Overlay axis label font size (pt in the chart template)')
+    p.add_argument('--overlay-tick-size', type=positive, default=10)
+    p.add_argument('--overlay-stats-size', type=positive, default=10)
     p.add_argument('--nm-per-pixel', type=positive)
     p.add_argument('--original-bar-nm', type=positive)
     p.add_argument('--original-bar-px', type=positive, help='Measured original bar width in pixels')
@@ -338,8 +380,8 @@ def create_parser():
     p.add_argument('--erase-height', type=int, default=130)
     p.add_argument('--background', type=int, choices=range(256), metavar='0..255', help='Default: median of erased region')
     p.add_argument('--color', choices=['black', 'white'], default='white')
-    p.add_argument('--thickness', type=int, default=7)
-    p.add_argument('--font-size', type=int, default=26)
+    p.add_argument('--thickness', type=int, default=36)
+    p.add_argument('--font-size', type=int, default=128)
     p.add_argument('--font', help='Optional TrueType font file')
     p.add_argument('--margin', type=int, default=9)
     p.add_argument('--gap', type=int, default=5)
@@ -362,7 +404,7 @@ def create_parser():
     bins = p.add_mutually_exclusive_group()
     bins.add_argument('--bins', type=int, default=12)
     bins.add_argument('--bin-width', type=positive)
-    p.add_argument('--y-mode', choices=['count', 'frequency'], default='count')
+    p.add_argument('--y-mode', choices=['count', 'frequency', 'density'], default='count')
     p.add_argument('--dpi', type=int, default=300)
     p.add_argument('--pdf', action='store_true')
     return p

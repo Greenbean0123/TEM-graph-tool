@@ -6,9 +6,20 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 
 class ExportDialog(simpledialog.Dialog):
     def __init__(self, parent, kind, directory, formats, default_name, files=None):
+        self.application = parent
         self.kind, self.directory, self.formats = kind, directory, formats
         self.default_name, self.files = default_name, files
         super().__init__(parent, title='Export '+('TEM images' if kind == 'tem' else 'size distribution'))
+
+    def buttonbox(self):
+        box = ttk.Frame(self, padding=10)
+        ttk.Button(box, text='Export', style='Accent.TButton', command=self.ok).pack(side='left', padx=5)
+        ttk.Button(box, text='Cancel', command=self.cancel).pack(side='left', padx=5)
+        box.pack()
+        self.bind('<Return>', self.ok)
+        self.bind('<Escape>', self.cancel)
+        if hasattr(self.application, 'appearance'):
+            self.application.appearance.paint(self)
 
     def body(self, parent):
         frame = ttk.Frame(parent, padding=10)
@@ -26,7 +37,7 @@ class ExportDialog(simpledialog.Dialog):
         description = 'A prefix produces prefix_001, prefix_002, …' if self.files else 'Default: '+self.default_name+' · extension is optional'
         ttk.Label(frame, text=description, wraplength=490, foreground='#64748b').pack(anchor='w', pady=(0, 10))
         ttk.Label(frame, text='Select output formats').pack(anchor='w')
-        formats = [('png', 'PNG (.png)'), ('tif', 'TIFF (.tif)')] if self.kind == 'tem' else [('png', 'PNG (.png)'), ('pdf', 'PDF (.pdf)')]
+        formats = [('png', 'PNG (.png)'), ('tif', 'TIFF (.tif)'), ('pdf', 'PDF (vector chart)'), ('svg', 'SVG (vector chart)')] if self.kind == 'tem' else [('png', 'PNG (.png)'), ('pdf', 'PDF (vector)'), ('svg', 'SVG (vector)')]
         self.format_vars = {}
         for value, label in formats:
             variable = tk.BooleanVar(self, value=value in self.formats)
@@ -56,7 +67,7 @@ class ExportDialog(simpledialog.Dialog):
     def validate(self):
         import tem_scalebar_distribution as core
         try:
-            core.export_stem('.', self.name.get(), self.default_name, {'.png', '.tif', '.tiff'} if self.kind == 'tem' else {'.png', '.pdf'})
+            core.export_stem('.', self.name.get(), self.default_name, {'.png', '.tif', '.tiff', '.pdf', '.svg'} if self.kind == 'tem' else {'.png', '.pdf', '.svg'})
         except ValueError as error:
             messagebox.showerror('Filename', str(error), parent=self)
             return False

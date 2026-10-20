@@ -100,4 +100,4 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t assets < <(find release-assets -type f \( -name 'TEM-graph-tool-*.exe' -o -name 'TEM-graph-tool-*.zip' -o -name 'TEM-graphic-tool-*.dmg' -o -name updates.json -o -name SHA256SUMS.txt \))
-          gh release create "$RELEASE_TAG" "${assets[@]}" --title "TEM graphic tool $RELEASE_TAG" --generate-notes --verify-tag
+          gh release create "$RELEASE_TAG" "${assets[@]}" --title "TEM Graph tool $RELEASE_TAG" --notes-file RELEASE_NOTES.md --verify-tag

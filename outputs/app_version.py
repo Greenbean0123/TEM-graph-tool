@@ -1,2 +1,2 @@
-__version__ = '0.0.3'
-APP_NAME = 'TEM graphic tool'
+__version__ = '0.0.4'
+APP_NAME = 'TEM Graph tool'
