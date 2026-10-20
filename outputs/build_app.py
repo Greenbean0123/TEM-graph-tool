@@ -44,7 +44,13 @@ def main():
         raise RuntimeError('Build on Windows or macOS')
     report = dist/'packaged-self-test.json'
     report.unlink(missing_ok=True)
-    subprocess.run([str(executable), '--self-test', str(report)], check=True, timeout=180)
+    try:
+        subprocess.run([str(executable), '--self-test', str(report)], check=True, timeout=180)
+    except (subprocess.SubprocessError, OSError):
+        diagnostic = Path(str(report)+'.startup.log')
+        if diagnostic.exists():
+            print(diagnostic.read_text(encoding='utf-8'), flush=True)
+        raise
     result = json.loads(report.read_text(encoding='utf-8'))
     if not result.get('success') or not result.get('frozen'):
         raise RuntimeError(f'Packaged self-test failed: {result}')

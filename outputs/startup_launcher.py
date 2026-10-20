@@ -2,9 +2,7 @@
 import json
 import os
 from pathlib import Path
-from queue import Queue, Empty
 import sys
-from threading import Thread
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -35,47 +33,47 @@ def launch():
     status = tk.StringVar(value='Starting…  5%')
     ttk.Label(frame, textvariable=status).pack(anchor='w', pady=(10, 0))
     progress['value'] = 5
-    events = Queue()
     loaded, stages, failed = [], [5], []
+    diagnostic = None
+    if len(sys.argv) == 3 and sys.argv[1] == '--self-test':
+        import faulthandler
+        diagnostic = open(str(sys.argv[2])+'.startup.log', 'w', encoding='utf-8')
+        faulthandler.dump_traceback_later(45, repeat=True, file=diagnostic)
+
+    def step(value, text):
+        progress['value'] = value
+        stages.append(value)
+        status.set(f'{text}…  {value}%')
+        root.update_idletasks()
+        if diagnostic:
+            diagnostic.write(f'{value}: {text}\n')
+            diagnostic.flush()
 
     def load():
         try:
-            events.put((15, 'Loading image support'))
+            step(15, 'Loading image support')
             import PIL.Image
             import numpy
             import tifffile
-            events.put((40, 'Loading analysis and plotting libraries'))
+            step(40, 'Loading analysis and plotting libraries')
             import tem_scalebar_distribution
-            events.put((80, 'Preparing the editor'))
+            step(80, 'Preparing the editor')
             import tem_studio
-            events.put((100, tem_studio))
+            loaded.append(tem_studio)
+            step(100, 'Ready')
+            root.after(100, root.destroy)
         except Exception as error:
             import traceback
-            events.put(('error', (str(error), traceback.format_exc())))
+            failed.append(traceback.format_exc())
+            if diagnostic:
+                diagnostic.write(failed[-1])
+                diagnostic.flush()
+            else:
+                messagebox.showerror(APP_NAME+' startup', str(error), parent=root)
+            root.destroy()
 
-    def poll():
-        try:
-            while True:
-                value, text = events.get_nowait()
-                if value == 'error':
-                    failed.append(text[1])
-                    messagebox.showerror(APP_NAME+' startup', text[0], parent=root)
-                    root.destroy()
-                    return
-                progress['value'] = value
-                stages.append(value)
-                if value == 100:
-                    loaded.append(text)
-                    status.set('Ready  100%')
-                    root.after(100, root.destroy)
-                    return
-                status.set(f'{text}…  {value}%')
-        except Empty:
-            pass
-        root.after(40, poll)
-
-    Thread(target=load, daemon=True, name='tem-startup-loader').start()
-    root.after(40, poll)
+    # macOS font and GUI initialization must stay on the main thread.
+    root.after(50, load)
     root.mainloop()
     if not loaded:
         return 1 if failed else 0
@@ -86,6 +84,9 @@ def launch():
         report = json.loads(report_path.read_text(encoding='utf-8'))
         report['startup_progress'] = {'steps': stages, 'completed': stages[-1] == 100}
         report_path.write_text(json.dumps(report, indent=2), encoding='utf-8')
+        if diagnostic:
+            faulthandler.cancel_dump_traceback_later()
+            diagnostic.close()
         return result
     module.TEMStudio().mainloop()
     return 0
