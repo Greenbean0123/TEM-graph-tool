@@ -58,6 +58,8 @@ class ScaleOCRTests(unittest.TestCase):
                 self.assertIsNotNone(app.report, app.status.get())
                 self.assertEqual(app.vars['original_bar_nm'].get(), '50')
                 self.assertEqual(app.vars['original_bar_px'].get(), '151')
+                self.assertEqual(app.vars['bar_nm'].get(), '50')
+                self.assertEqual(app.report['bar_pixels'], 151)
                 self.assertAlmostEqual(float(app.vars['nm_per_pixel'].get()), 50/151)
             finally:
                 app.close()

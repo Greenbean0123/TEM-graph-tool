@@ -57,6 +57,7 @@ def mac_text(path):
     request = handler = None
     try:
         request = send(send(cls('VNRecognizeTextRequest'), 'alloc'), 'init')
+        send(request, 'setUsesCPUOnly:', True, result=None, types=(C.c_bool,))
         send(request, 'setRecognitionLevel:', 0, result=None, types=(C.c_long,))
         send(request, 'setUsesLanguageCorrection:', False, result=None, types=(C.c_bool,))
         languages = send(cls('NSArray'), 'arrayWithObject:', string('en-US'), types=(C.c_void_p,))
@@ -155,5 +156,8 @@ def read_scale_label(array, region):
             engine = 'Windows OCR'
         else:
             raise ValueError('Automatic label reading requires macOS or Windows; enter Original label (nm) manually')
-    nm, text = parse_scale_text(lines)
+    try:
+        nm, text = parse_scale_text(lines)
+    except ValueError as e:
+        raise ValueError(f'{e} OCR read: {lines!r}') from e
     return nm, text, engine

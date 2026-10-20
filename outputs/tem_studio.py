@@ -161,7 +161,7 @@ class TEMStudio(tk.Tk):
         ttk.Button(presets, text='Open project…', command=self.open_project).pack(side='right')
 
         ttk.Label(layout, text='Large, readable scale bar', font=('Segoe UI', 13, 'bold')).pack(anchor='w', pady=(0, 8))
-        self.field(layout, 'Length (nm; blank=auto)', 'bar_nm', '')
+        self.field(layout, 'Length (nm; blank=original)', 'bar_nm', '')
         self.field(layout, 'Auto target width (px)', 'target_width', '500')
         self.field(layout, 'Color', 'color', 'white', ['white', 'black'])
         self.field(layout, 'Line thickness (px)', 'thickness', '18')
@@ -316,6 +316,7 @@ class TEMStudio(tk.Tk):
             value = s.get(key, '').strip()
             setattr(a, key, core.positive(value) if value else None)
         a.target_width = a.target_width or 500
+        a.match_original_bar = a.bar_nm is None
         mode = s['cal_mode']
         a.measure_original_bar = mode == 'Auto measure bar'
         if mode == 'nm per pixel':
@@ -362,6 +363,8 @@ class TEMStudio(tk.Tk):
                 if r.get('measured_original_bar_pixels') is not None:
                     self.vars['original_bar_px'].set(str(r['measured_original_bar_pixels']))
                 self.vars['nm_per_pixel'].set(f"{r['nm_per_pixel']:.12g}")
+                if not self.vars['bar_nm'].get().strip():
+                    self.vars['bar_nm'].set(f"{r['bar_nm']:g}")
             finally:
                 self.loading = False
             self.store()
@@ -749,9 +752,11 @@ def packaged_self_test(report_path):
             app.load_files([str(source)])
             if app.report is None:
                 raise RuntimeError('Native scale OCR failed: '+app.status.get())
-            if app.vars['original_bar_nm'].get() != '50' or app.vars['original_bar_px'].get() != '151':
+            if app.vars['original_bar_nm'].get() != '50' or app.vars['original_bar_px'].get() != '151' or app.vars['bar_nm'].get() != '50':
                 raise RuntimeError('Native 50 nm auto-import did not populate calibration')
-            mac_ocr = 'passed: 50 nm / 151 px, auto-import fields populated'
+            if app.report['bar_pixels'] != 151:
+                raise RuntimeError('Default new bar does not match the original 50 nm / 151 px')
+            mac_ocr = 'passed: original and default new bar 50 nm / 151 px, fields populated'
         for mode in ('count', 'frequency'):
             app.vars['y_mode'].set(mode)
             r = core.distribution(app.dist_args(folder))

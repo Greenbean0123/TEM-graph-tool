@@ -162,9 +162,10 @@ def redraw(path, args, render_only=False):
             im, h = expanded, new_h
             draw = ImageDraw.Draw(im)
     choices = [n for n in (10, 20, 50, 100, 200, 500) if n/scale <= w-2*args.margin]
-    if args.bar_nm is None and not choices:
+    matched = args.original_bar_nm if getattr(args, 'match_original_bar', False) else None
+    if args.bar_nm is None and matched is None and not choices:
         raise ValueError('No automatic nm length fits this image; enter a smaller custom Length (nm)')
-    length = args.bar_nm or min(choices, key=lambda n: abs(n / scale - args.target_width))
+    length = args.bar_nm or matched or min(choices, key=lambda n: abs(n / scale - args.target_width))
     pixels = int(math.floor(length / scale + .5))
     if pixels < 1:
         raise ValueError('Bar rounds to less than one pixel')
@@ -271,6 +272,7 @@ def create_parser():
     p.add_argument('--measure-box', type=rectangle, help='Original bar-only search rectangle; otherwise detect separate footer')
     p.add_argument('--image-config', type=Path, help='JSON mapping image filename to per-image option overrides (underscore keys)')
     p.add_argument('--bar-nm', type=positive, help='Explicit new length; otherwise select 10/20/50/100/200/500 nm')
+    p.add_argument('--match-original-bar', action='store_true', help='Default the new nm length to the detected or supplied original label')
     p.add_argument('--target-width', type=positive, default=250)
     corners = ['bottom-right', 'bottom-left', 'top-right', 'top-left']
     p.add_argument('--corner', choices=corners, default='bottom-right')
@@ -312,7 +314,7 @@ def main():
         for path in args.tiff or []:
             local = copy.copy(args)
             for key, value in config.get(path.name, {}).items():
-                if key not in {'nm_per_pixel', 'original_bar_nm', 'original_bar_px', 'measure_original_bar', 'measure_box', 'erase_box', 'bar_nm', 'corner', 'original_corner', 'color', 'background', 'font_size', 'thickness', 'margin', 'gap', 'label_position', 'target_width'}:
+                if key not in {'nm_per_pixel', 'original_bar_nm', 'original_bar_px', 'measure_original_bar', 'measure_box', 'erase_box', 'bar_nm', 'match_original_bar', 'corner', 'original_corner', 'color', 'background', 'font_size', 'thickness', 'margin', 'gap', 'label_position', 'target_width'}:
                     raise ValueError(f'Unsupported per-image option: {key}')
                 setattr(local, key, value)
             images.append(redraw(path, local))
