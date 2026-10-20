@@ -736,7 +736,7 @@ class TEMStudio(tk.Tk):
             return
         try:
             from collections import Counter
-            files = options['files']
+            files = [Path(path).resolve() for path in options['files']]
             counts = Counter(p.stem.casefold() for p in files)
             prefix = core.export_stem('.', options['name'], 'batch', {'.png', '.tif', '.tiff'}).name if options['name'] else None
             # Validate every image before writing any output.
