@@ -147,6 +147,8 @@ class TEMStudio(tk.Tk):
         self.field(inset, 'Border / scale color', 'inset_color', 'white', ['white', 'black'])
         self.field(inset, 'Border thickness (px)', 'inset_border', '4')
         self.field(inset, 'Connector line', 'inset_connector', 'Yes', ['Yes', 'No'])
+        self.field(inset, 'Connector thickness (px)', 'inset_connector_width', '4')
+        self.field(inset, 'Connector color', 'inset_connector_color', 'white', ['white', 'black'])
         self.field(inset, 'Inset bar nm (blank=auto)', 'inset_bar_nm')
         ttk.Label(inset, text='Select a region, then drag the inset to move it. Drag its lower-right corner to resize. Aspect ratio is preserved; its scale bar updates automatically. All dimensions use original image pixels.', wraplength=375).pack(anchor='w', pady=12)
         updates = ScrollableTab(tabs)
@@ -297,7 +299,8 @@ class TEMStudio(tk.Tk):
                         color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
                         label_position='above', gap='12', bar_x='', bar_y='',
                         inset_enabled='No', inset_roi='', inset_width='500', inset_x='', inset_y='',
-                        inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='')
+                        inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='',
+                        inset_connector_width='4', inset_connector_color='white')
         self.loading = True
         for key, value in dict(defaults, **self.settings.get(str(self.current), {})).items():
             if key in self.vars:
@@ -383,6 +386,8 @@ class TEMStudio(tk.Tk):
         a.inset_color = s.get('inset_color', 'white')
         a.inset_border = int(s.get('inset_border', '4'))
         a.inset_no_connector = s.get('inset_connector', 'Yes') == 'No'
+        a.inset_connector_width = int(s.get('inset_connector_width', '4'))
+        a.inset_connector_color = s.get('inset_connector_color', 'white')
         a.inset_bar_nm = core.positive(s['inset_bar_nm']) if s.get('inset_bar_nm', '').strip() else None
         a.output_dir = Path(out or self.temp.name)
         a.output_dir.mkdir(parents=True, exist_ok=True)

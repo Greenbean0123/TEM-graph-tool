@@ -3,7 +3,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 def compose(image, source, nm_per_pixel, roi, width=500, position=None,
-            color='white', border=4, connector=True, bar_nm=None):
+            color='white', border=4, connector=True, bar_nm=None,
+            connector_width=4, connector_color='white'):
     w, h = image.size
     x0, y0, x1, y1 = map(int, roi)
     if not (0 <= x0 < x1 <= source.width and 0 <= y0 < y1 <= source.height):
@@ -45,7 +46,19 @@ def compose(image, source, nm_per_pixel, roi, width=500, position=None,
     out = image.copy()
     d = ImageDraw.Draw(out)
     if connector:
-        d.line(((x0+x1)//2, (y0+y1)//2, left+width//2, top+height//2), fill=ink, width=border)
+        connector_width = int(connector_width)
+        if not 1 <= connector_width <= 30:
+            raise ValueError('Connector thickness must be 1–30 px')
+        line_ink = white if connector_color == 'white' else black
+        dx, dy = left+width/2-(x0+x1)/2, top+height/2-(y0+y1)/2
+        if abs(dx) >= abs(dy):
+            sx, ex = (x1-1, left) if dx >= 0 else (x0, left+width-1)
+            lines = [(sx, y0, ex, top), (sx, y1-1, ex, top+height-1)]
+        else:
+            sy, ey = (y1-1, top) if dy >= 0 else (y0, top+height-1)
+            lines = [(x0, sy, left, ey), (x1-1, sy, left+width-1, ey)]
+        for line in lines:
+            d.line(line, fill=line_ink, width=connector_width)
     d.rectangle((x0, y0, x1-1, y1-1), outline=ink, width=border)
     out.paste(tile, (left, top))
     d.rectangle((left, top, left+width-1, top+height-1), outline=ink, width=border)

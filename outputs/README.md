@@ -82,3 +82,8 @@ CLI example (coordinates refer to the image after footer removal):
 ```
 python tem_scalebar_distribution.py --tiff sample.tif --nm-per-pixel 0.5 --inset-roi 100,100,300,300 --inset-width 600 --inset-x 1000 --inset-y 50 --inset-color white --inset-border 4 --output-dir results
 ```
+
+The source region and inset are joined by two edge-to-edge connector lines.
+Connector thickness (1–30 px) and black/white color are independently configurable
+from the inset frame, including CLI --inset-connector-width and --inset-connector-color.
+Inset scale labels and bars are drawn directly on the microscopy without a background block.

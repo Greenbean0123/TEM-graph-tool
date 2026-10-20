@@ -226,7 +226,8 @@ def redraw(path, args, render_only=False):
         position = None if args.inset_x is None or args.inset_y is None else (args.inset_x, args.inset_y)
         im, report['inset'] = compose(im, clean_source, scale, args.inset_roi,
             args.inset_width, position, args.inset_color, args.inset_border,
-            not args.inset_no_connector, args.inset_bar_nm)
+            not args.inset_no_connector, args.inset_bar_nm,
+            args.inset_connector_width, args.inset_connector_color)
     if render_only:
         return im, report
     result = np.asarray(im)
@@ -323,6 +324,8 @@ def create_parser():
     p.add_argument('--inset-color', choices=['white', 'black'], default='white')
     p.add_argument('--inset-border', type=int, default=4)
     p.add_argument('--inset-no-connector', action='store_true')
+    p.add_argument('--inset-connector-width', type=int, default=4)
+    p.add_argument('--inset-connector-color', choices=['white', 'black'], default='white')
     p.add_argument('--inset-bar-nm', type=positive, help='Inset bar length; default selects a readable length automatically')
     bins = p.add_mutually_exclusive_group()
     bins.add_argument('--bins', type=int, default=12)

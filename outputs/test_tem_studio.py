@@ -28,6 +28,17 @@ class TEMTests(unittest.TestCase):
             self.assertEqual(out.getpixel((270, 40)), expected.getpixel((20, 20)))
             self.assertEqual(out.getpixel((0, 511)), 0)
 
+    def test_two_connectors_have_independent_color_and_width(self):
+        from PIL import Image
+        from tem_inset import compose
+        source = Image.new('L', (512, 512), 145)
+        out, _ = compose(source, source, .5, (20, 20, 100, 100), 160,
+                         (250, 20), color='white', connector_width=6, connector_color='black')
+        self.assertEqual(out.getpixel((180, 20)), 0)
+        self.assertEqual(out.getpixel((180, 22)), 0)
+        self.assertEqual(out.getpixel((180, 141)), 0)
+        self.assertEqual(out.getpixel((180, 65)), 145)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.folder = Path(self.tmp.name)
