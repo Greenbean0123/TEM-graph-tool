@@ -1,0 +1,6 @@
+numpy
+scipy
+matplotlib
+Pillow>=10.1
+tifffile
+cryptography>=43

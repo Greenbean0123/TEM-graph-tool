@@ -1,0 +1,99 @@
+name: Build and publish TEM graph tool
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+          - os: macos-14
+            platform: macos-arm64
+          - os: macos-15-intel
+            platform: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        if: runner.os == 'Windows'
+        with:
+          python-version: '3.13'
+      - name: Install macOS Python with Tk
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg="$RUNNER_TEMP/python.pkg"
+          curl --fail --location --retry 3 --proto '=https' --tlsv1.2 https://www.python.org/ftp/python/3.13.16/python-3.13.16-macos11.pkg -o "$pkg"
+          echo "30666509020b4da0dd8bc2e773255f34d76b7bb80b66960a928d5f6daa0192d7  $pkg" | shasum -a 256 -c -
+          pkgutil --check-signature "$pkg"
+          sudo installer -pkg "$pkg" -target /
+          bash '/Applications/Python 3.13/Install Certificates.command'
+          echo '/Library/Frameworks/Python.framework/Versions/3.13/bin' >> "$GITHUB_PATH"
+      - run: python3 -m pip install -r outputs/requirements.txt pyinstaller
+        if: runner.os == 'macOS'
+      - run: python -m pip install -r outputs/requirements.txt pyinstaller
+        if: runner.os == 'Windows'
+      - name: Test and build Windows
+        if: runner.os == 'Windows'
+        run: |
+          python outputs/test_updates.py
+          python outputs/test_tem_studio.py
+          python outputs/build_app.py
+      - name: Test and build Mac
+        if: runner.os == 'macOS'
+        run: |
+          python3 outputs/test_updates.py
+          python3 outputs/test_tem_studio.py
+          python3 outputs/build_app.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            outputs/dist/TEM-graph-tool-*.exe
+            outputs/dist/TEM-graph-tool-*.zip
+            outputs/dist/packaged-self-test.json
+          if-no-files-found: error
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v7
+        with:
+          path: release-assets
+      - run: python -m pip install cryptography
+      - name: Sign complete release manifest
+        env:
+          TEM_SIGNING_KEY: ${{ secrets.TEM_SIGNING_KEY }}
+          RELEASE_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import sys; sys.path.insert(0, 'outputs'); from app_version import __version__; print(__version__)")"
+          test "$RELEASE_TAG" = "v$version"
+          python outputs/release_tools.py --repo "$RELEASE_REPO" --assets release-assets --output release-assets/updates.json --version "$version"
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find release-assets -type f \( -name 'TEM-graph-tool-*.exe' -o -name 'TEM-graph-tool-*.zip' -o -name updates.json \))
+          gh release create "$RELEASE_TAG" "${assets[@]}" --title "TEM graph tool $RELEASE_TAG" --generate-notes --verify-tag
