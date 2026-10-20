@@ -67,6 +67,25 @@ def rectangle(s):
         raise argparse.ArgumentTypeError('Use x0,y0,x1,y1 (exclusive right/bottom)')
 
 
+def export_stem(directory, name, default, extensions):
+    """Resolve a portable filename without allowing directories or device names."""
+    name = (name or '').strip() or default
+    if Path(name).suffix.lower() in extensions:
+        name = name[: -len(Path(name).suffix)]
+    if (not name or name in {'.', '..'} or name.endswith(('.', ' ')) or
+            any(c in '<>:"/\\|?*' or ord(c) < 32 for c in name) or
+            name.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL', *[f'COM{i}' for i in range(1, 10)], *[f'LPT{i}' for i in range(1, 10)]}):
+        raise ValueError('Enter a filename only, without folders or characters <>:"/\\|?*.')
+    return Path(directory)/name
+
+
+def export_formats(formats, allowed):
+    formats = list(dict.fromkeys(formats))
+    if not formats or not set(formats) <= set(allowed):
+        raise ValueError('Select at least one supported output format: '+', '.join(allowed))
+    return formats
+
+
 def redraw(path, args, render_only=False):
     with tifffile.TiffFile(path) as tf:
         if len(tf.pages) != 1:
@@ -209,10 +228,13 @@ def redraw(path, args, render_only=False):
         color = (color,)*3
     draw.rectangle((bx, by, bx+pixels-1, by+args.thickness-1), fill=color)
     draw.text((left+(bw-tw)/2-tb[0], ty-tb[1]), label, font=font, fill=color)
-    out = args.output_dir / (path.stem + '_scalebar')
-    if path.resolve() == out.with_suffix('.tif').resolve():
+    out = export_stem(args.output_dir, getattr(args, 'tem_name', None), path.stem+'_scalebar', {'.tif', '.tiff', '.png'})
+    formats = export_formats(getattr(args, 'tem_formats', ['png', 'tif']), ['png', 'tif'])
+    protected = {Path(p).resolve() for p in (getattr(args, 'protected_inputs', None) or getattr(args, 'tiff', None) or [])}
+    protected.add(path.resolve())
+    if any(Path(str(out)+'.'+extension).resolve() in protected for extension in formats):
         raise ValueError('Output must differ from input')
-    report = {'input': str(path), 'nm_per_pixel': scale, 'calibration_source': source,
+    report = {'input': str(path), 'output_stem': str(out), 'output_files': [str(out)+'.'+ext for ext in formats], 'nm_per_pixel': scale, 'calibration_source': source,
             'measured_original_bar_pixels': measured_pixels,
             'original_bar_nm': args.original_bar_nm, 'recognized_scale_text': recognized_text,
             'label_reader': label_reader,
@@ -231,12 +253,17 @@ def redraw(path, args, render_only=False):
     if render_only:
         return im, report
     result = np.asarray(im)
-    tifffile.imwrite(str(out)+'.tif', result, metadata={'nm_per_pixel': scale}, photometric='minisblack' if a.ndim == 2 else 'rgb')
-    im.save(str(out)+'.png')
+    if 'tif' in formats:
+        tifffile.imwrite(str(out)+'.tif', result, metadata={'nm_per_pixel': scale}, photometric='minisblack' if a.ndim == 2 else 'rgb')
+    if 'png' in formats:
+        im.save(str(out)+'.png')
     return report
 
 
 def distribution(args):
+    stem = export_stem(args.output_dir, getattr(args, 'distribution_name', None), 'size_distribution', {'.png', '.pdf'})
+    formats = getattr(args, 'distribution_formats', None)
+    formats = export_formats(formats if formats is not None else ['png']+(['pdf'] if args.pdf else []), ['png', 'pdf'])
     with args.csv.open(encoding='utf-8-sig', newline='') as f:
         reader = csv.DictReader(f)
         if args.column not in (reader.fieldnames or []):
@@ -274,12 +301,12 @@ def distribution(args):
     ax.set_ylim(bottom=0)
     ax.legend(loc='upper left', frameon=False)
     ax.spines[['top', 'right']].set_visible(False)
-    stem = args.output_dir / 'size_distribution'
-    fig.savefig(str(stem)+'.png', dpi=args.dpi)
-    if args.pdf:
-        fig.savefig(str(stem)+'.pdf')
-    plt.close(fig)
-    return {'column': args.column, 'N': n, 'mean_nm': mu, 'std_nm': sigma,
+    try:
+        for extension in formats:
+            fig.savefig(str(stem)+'.'+extension, dpi=args.dpi)
+    finally:
+        plt.close(fig)
+    return {'output_stem': str(stem), 'output_files': [str(stem)+'.'+ext for ext in formats], 'column': args.column, 'N': n, 'mean_nm': mu, 'std_nm': sigma,
             'std_definition': 'population / Gaussian MLE, ddof=0', 'bin_edges': edges.tolist(), 'y_mode': args.y_mode}
 
 
@@ -289,6 +316,10 @@ def create_parser():
     p.add_argument('--csv', type=Path)
     p.add_argument('--column', default='diameter_nm', help='Diameter column, values in nm')
     p.add_argument('--output-dir', type=Path, default=Path('outputs'))
+    p.add_argument('--tem-name', help='Single TEM export filename, without extension; blank uses input_scalebar')
+    p.add_argument('--distribution-name', help='Distribution export filename; blank uses size_distribution')
+    p.add_argument('--tem-formats', nargs='+', choices=['png', 'tif'], default=['png', 'tif'])
+    p.add_argument('--distribution-formats', nargs='+', choices=['png', 'pdf'], help='Explicit formats; otherwise PNG plus optional --pdf')
     p.add_argument('--nm-per-pixel', type=positive)
     p.add_argument('--original-bar-nm', type=positive)
     p.add_argument('--original-bar-px', type=positive, help='Measured original bar width in pixels')
@@ -342,6 +373,8 @@ def main():
     args = p.parse_args()
     if not args.tiff and not args.csv:
         p.error('Provide --tiff and/or --csv')
+    if args.tem_name and args.tem_name.strip() and len(args.tiff or []) > 1:
+        p.error('--tem-name is for a single TIFF; batch exports use each input filename')
     if any(getattr(args, k) <= 0 for k in ('thickness', 'font_size', 'erase_width', 'erase_height', 'bins')) or args.margin < 0 or args.gap < 0 or args.dpi < 300:
         p.error('Sizes/bins must be positive; margin/gap >= 0; dpi >= 300')
     args.output_dir.mkdir(parents=True, exist_ok=True)

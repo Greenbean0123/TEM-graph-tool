@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           version="$(python -c "import sys; sys.path.insert(0, 'outputs'); from app_version import __version__; print(__version__)")"
           test "$RELEASE_TAG" = "v$version"
-          python outputs/release_tools.py --repo "$RELEASE_REPO" --assets release-assets --output release-assets/updates.json --version "$version"
+          python outputs/release_tools.py --repo "$RELEASE_REPO" --assets release-assets --output release-assets/updates.json --version "$version" --checksums
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,5 +99,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t assets < <(find release-assets -type f \( -name 'TEM-graph-tool-*.exe' -o -name 'TEM-graph-tool-*.zip' -o -name 'TEM-graphic-tool-*.dmg' -o -name updates.json \))
+          mapfile -t assets < <(find release-assets -type f \( -name 'TEM-graph-tool-*.exe' -o -name 'TEM-graph-tool-*.zip' -o -name 'TEM-graphic-tool-*.dmg' -o -name updates.json -o -name SHA256SUMS.txt \))
           gh release create "$RELEASE_TAG" "${assets[@]}" --title "TEM graphic tool $RELEASE_TAG" --generate-notes --verify-tag

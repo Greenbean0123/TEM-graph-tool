@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from export_dialog import ExportDialog
 
 from app_version import __version__, APP_NAME
 import updater
@@ -139,8 +140,11 @@ class TEMStudio(tk.Tk):
         ttk.Label(header, image=self.header_icon).pack(side='left', padx=(0, 8))
         ttk.Label(header, text=APP_NAME, font=('Segoe UI', 20, 'bold')).pack(side='left')
         ttk.Label(header, text='Scale bar editor  /  Size distribution', foreground='#65758b').pack(side='left', padx=20)
-        ttk.Button(header, text='Export current…', style='Accent.TButton', command=self.export_current).pack(side='right')
-        ttk.Button(header, text='Export all TEM…', command=self.export_all).pack(side='right', padx=8)
+        exports = ttk.Frame(self, padding=(18, 0, 18, 8))
+        exports.pack(fill='x')
+        ttk.Button(exports, text='Export TEM image…', style='Accent.TButton', command=self.export_tem).pack(side='left')
+        ttk.Button(exports, text='Export size distribution…', command=self.export_distribution).pack(side='left', padx=8)
+        ttk.Button(exports, text='Batch export TEM…', command=self.export_all).pack(side='left')
         body = ttk.Panedwindow(self, orient='horizontal')
         body.pack(fill='both', expand=True, padx=12)
         left = ttk.Frame(body, width=425)
@@ -302,11 +306,22 @@ class TEMStudio(tk.Tk):
             path = Path(name).resolve()
             if path not in self.files:
                 self.files.append(path)
+                self.settings.setdefault(str(path), self.default_image_settings())
                 self.listbox.insert('end', path.name)
         if names:
             self.listbox.selection_clear(0, 'end')
             self.listbox.selection_set(len(self.files)-1)
             self.select_file()
+
+    @staticmethod
+    def default_image_settings():
+        return dict(cal_mode='Auto measure bar', original_bar_nm='', original_unit='nm', match_original='true', original_bar_px='', nm_per_pixel='',
+                        erase_box='', background='Auto', remove_footer='Yes', original_corner='bottom-right', bar_nm='', target_width='500',
+                        color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
+                        label_position='above', gap='12', bar_x='', bar_y='',
+                        inset_enabled='No', inset_roi='', inset_width='500', inset_x='', inset_y='',
+                        inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='',
+                        inset_connector_width='4', inset_connector_color='white', inset_show_scalebar='Yes')
 
     def select_file(self, _=None):
         indices = self.listbox.curselection()
@@ -314,13 +329,7 @@ class TEMStudio(tk.Tk):
             return
         self.store()
         self.current = self.files[indices[0]]
-        defaults = dict(cal_mode='Auto measure bar', original_bar_nm='', original_unit='nm', match_original='true', original_bar_px='', nm_per_pixel='',
-                        erase_box='', background='Auto', remove_footer='Yes', original_corner='bottom-right', bar_nm='', target_width='500',
-                        color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
-                        label_position='above', gap='12', bar_x='', bar_y='',
-                        inset_enabled='No', inset_roi='', inset_width='500', inset_x='', inset_y='',
-                        inset_color='white', inset_border='4', inset_connector='Yes', inset_bar_nm='',
-                        inset_connector_width='4', inset_connector_color='white', inset_show_scalebar='Yes')
+        defaults = self.default_image_settings()
         self.loading = True
         for key, value in dict(defaults, **self.settings.get(str(self.current), {})).items():
             if key in self.vars:
@@ -411,6 +420,7 @@ class TEMStudio(tk.Tk):
         a.inset_bar_nm = core.positive(s['inset_bar_nm']) if s.get('inset_bar_nm', '').strip() else None
         a.inset_no_scalebar = s.get('inset_show_scalebar', 'Yes') == 'No'
         a.output_dir = Path(out or self.temp.name)
+        a.protected_inputs = list(self.files)
         a.output_dir.mkdir(parents=True, exist_ok=True)
         return a
 
@@ -663,6 +673,7 @@ class TEMStudio(tk.Tk):
             args = self.dist_args(self.temp.name)
             # Preview only needs PNG. PDF is written on explicit export.
             args.pdf = False
+            args.distribution_formats = ['png']
             r = core.distribution(args)
             with Image.open(Path(self.temp.name)/'size_distribution.png') as im:
                 self.preview_image = im.copy()
@@ -677,28 +688,42 @@ class TEMStudio(tk.Tk):
         if self.view == 'distribution':
             self.export_distribution()
             return
+        self.export_tem()
+
+    def export_tem(self):
         if not self.current:
             messagebox.showinfo('Add image', 'Please add a TIFF first.')
             return
-        out = filedialog.askdirectory(title='Export TIFF + PNG to folder')
-        if not out:
+        options = self.choose_export('tem')
+        if options is None:
             return
         try:
-            r = core.redraw(self.current, self.get_args(out=out))
-            (Path(out)/(self.current.stem+'_scalebar_report.json')).write_text(json.dumps(r, indent=2), encoding='utf-8')
-            self.status.set(f'Exported TIFF + PNG to {out}')
-            messagebox.showinfo('Export complete', f'TIFF + PNG saved to:\n{out}')
+            args = self.get_args(out=options['directory'])
+            args.tem_name, args.tem_formats = options['name'], options['formats']
+            r = core.redraw(self.current, args)
+            if options['report']:
+                Path(r['output_stem']+'_report.json').write_text(json.dumps(r, indent=2), encoding='utf-8')
+            self.status.set('Exported '+', '.join(r['output_files']))
+            messagebox.showinfo('Export complete', 'Saved:\n'+'\n'.join(r['output_files']))
         except Exception as e:
             self.fail(e)
 
     def export_distribution(self):
-        out = filedialog.askdirectory(title='Export distribution PNG / PDF')
-        if not out:
+        if not self.csv_path:
+            messagebox.showinfo('Open CSV', 'Please open a diameter CSV first.')
+            return
+        options = self.choose_export('distribution')
+        if options is None:
             return
         try:
-            r = core.distribution(self.dist_args(out))
-            (Path(out)/'size_distribution_report.json').write_text(json.dumps(r, indent=2), encoding='utf-8')
-            messagebox.showinfo('Export complete', f'Distribution saved to:\n{out}')
+            options['directory'].mkdir(parents=True, exist_ok=True)
+            args = self.dist_args(options['directory'])
+            args.distribution_name, args.distribution_formats = options['name'], options['formats']
+            r = core.distribution(args)
+            if options['report']:
+                Path(r['output_stem']+'_report.json').write_text(json.dumps(r, indent=2), encoding='utf-8')
+            self.status.set('Exported '+', '.join(r['output_files']))
+            messagebox.showinfo('Export complete', 'Saved:\n'+'\n'.join(r['output_files']))
         except Exception as e:
             self.fail(e)
 
@@ -706,22 +731,49 @@ class TEMStudio(tk.Tk):
         self.store()
         if not self.files:
             return
-        if len({p.stem.lower() for p in self.files}) != len(self.files):
-            self.fail(ValueError('Duplicate image stems: export these images separately to different folders.'))
-            return
-        out = filedialog.askdirectory(title='Export all TEM images')
-        if not out:
+        options = self.choose_export('tem', batch=True)
+        if options is None:
             return
         try:
+            from collections import Counter
+            files = options['files']
+            counts = Counter(p.stem.casefold() for p in files)
+            prefix = core.export_stem('.', options['name'], 'batch', {'.png', '.tif', '.tiff'}).name if options['name'] else None
             # Validate every image before writing any output.
-            jobs = [(p, self.get_args(self.settings[str(p)], out)) for p in self.files]
+            jobs = []
+            for index, path in enumerate(files, 1):
+                args = self.get_args(self.settings[str(path)], options['directory'])
+                args.tem_formats = options['formats']
+                args.tem_name = f'{prefix}_{index:03}' if prefix else f'{path.stem}_scalebar_{index:03}' if counts[path.stem.casefold()] > 1 else None
+                jobs.append((path, args))
+            targets = []
             for path, args in jobs:
-                core.redraw(path, copy.copy(args), render_only=True)
+                _, report = core.redraw(path, copy.copy(args), render_only=True)
+                targets.extend(str(Path(p).resolve()).casefold() for p in report['output_files'])
+            if len(targets) != len(set(targets)):
+                raise ValueError('Output filenames overlap; choose a different batch prefix.')
             reports = [core.redraw(path, args) for path, args in jobs]
-            (Path(out)/'tem_export_report.json').write_text(json.dumps(reports, indent=2), encoding='utf-8')
-            messagebox.showinfo('Export complete', f'{len(reports)} images exported to:\n{out}')
+            if options['report']:
+                report_path = options['directory']/((prefix+'_report.json') if prefix else 'tem_export_report.json')
+                report_path.write_text(json.dumps(reports, indent=2), encoding='utf-8')
+            self.status.set(f"Exported {len(reports)} TEM images to {options['directory']}")
+            messagebox.showinfo('Export complete', f"{len(reports)} TEM images exported to:\n{options['directory']}")
         except Exception as e:
             self.fail(e)
+
+    def choose_export(self, kind, batch=False):
+        source = self.current if kind == 'tem' else self.csv_path
+        directory = getattr(self, 'last_export_directory', None) or (source.parent if source else Path.home())
+        formats = getattr(self, 'tem_export_formats', ['png', 'tif']) if kind == 'tem' else ['png']+(['pdf'] if self.pdf.get() else [])
+        default = self.current.stem+'_scalebar' if kind == 'tem' and self.current else 'size_distribution'
+        options = ExportDialog(self, kind, directory, formats, default, files=list(self.files) if batch else None).result
+        if options is not None:
+            self.last_export_directory = options['directory']
+            if kind == 'tem':
+                self.tem_export_formats = options['formats']
+            else:
+                self.pdf.set('pdf' in options['formats'])
+        return options
 
     def save_project(self):
         self.store()
@@ -912,6 +964,31 @@ def packaged_self_test(report_path, startup_callback=None):
             if r['N'] != 7 or abs(r['mean_nm']-55) > 1e-9:
                 raise RuntimeError('Incorrect distribution statistics')
             checks.append(mode + ': PNG + PDF + statistics passed')
+        named_tem = copy.copy(inset_args)
+        named_tem.tem_name = 'TEM figure.v1.png'
+        named_result = core.redraw(inset_source, named_tem)
+        if not (folder/'TEM figure.v1.tif').exists() or not (folder/'TEM figure.v1.png').exists():
+            raise RuntimeError('Named TEM export failed')
+        named_dist = app.dist_args(folder)
+        named_dist.distribution_name = 'Distribution figure.v1.pdf'
+        core.distribution(named_dist)
+        if not (folder/'Distribution figure.v1.png').exists() or not (folder/'Distribution figure.v1.pdf').exists():
+            raise RuntimeError('Named distribution export failed')
+        checks.append('independent TEM/distribution exports: custom names and extensions passed')
+        for extension in ('png', 'tif'):
+            single = copy.copy(inset_args)
+            single.tem_name = 'only_'+extension
+            single.tem_formats = [extension]
+            core.redraw(inset_source, single)
+            if not (folder/('only_'+extension+'.'+extension)).exists() or (folder/('only_'+extension+'.'+('tif' if extension == 'png' else 'png'))).exists():
+                raise RuntimeError('TEM format selection failed')
+        png_only = app.dist_args(folder)
+        png_only.distribution_name = 'only_size_png'
+        png_only.distribution_formats = ['png']
+        core.distribution(png_only)
+        if not (folder/'only_size_png.png').exists() or (folder/'only_size_png.pdf').exists():
+            raise RuntimeError('PNG-only distribution export failed')
+        checks.append('format selection: TEM PNG-only, TIFF-only, distribution PNG-only passed')
         result = {'success': True, 'version': __version__, 'application_name': APP_NAME,
                   'startup_progress': {'steps': app.startup_steps, 'completed': app.startup_steps[-1:] == [100]},
                   'application_icon': 'loaded', 'frozen': bool(getattr(sys, 'frozen', False)),

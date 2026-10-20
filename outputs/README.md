@@ -6,12 +6,15 @@ A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian
 
 1. **Data & calibration**: Add TIFF images. Auto mode reads the original nm/µm text using the operating system's OCR and measures the bar independently for each image. Detected original length, pixel width and nm/pixel are filled into the left panel. **Original label unit** defaults to nm and also supports µm. Correct the number or unit manually when needed. If the OCR reads the number but not its unit, the selected unit is used and a verification message is displayed. Re-detect original scale bar retries recognition; manual label/width and nm/pixel remain available. Draw an erase box covering the original label and bar when needed.
 2. **Scale bar**: Change nm length, black/white color, thickness, font size, corner and margin. Drag the new bar in the preview for custom positioning. X/Y are the top-left of the combined label and bar. The bar is overlaid directly on the image without expanding its canvas.
-3. **Distribution**: Open CSV, select a named diameter column in nm, choose bins or bin width and Count/Frequency. Preview then Export current for PNG and optional PDF.
-4. Export all TEM uses each image's independent calibration and appearance. Save/Open project preserves input paths and settings; input data must remain at those paths.
+3. **Distribution**: Open CSV, select a named diameter column in nm, choose bins or bin width and Count/Frequency. Use **Export size distribution** independently of the current preview.
+4. **Export TEM image** exports the edited TEM with its scale bar and optional inset. Choose PNG only, TIFF only, or both. **Export size distribution** offers PNG, PDF, or both. JSON reports are optional and off by default, so PNG-only exports produce only the PNG.
+5. **Batch export TEM** lets you select several loaded images and their output formats. Leave the name blank to use each original filename plus `_scalebar`. A custom prefix generates `prefix_001`, `prefix_002`, etc. Each image keeps its own calibration and appearance. Save/Open project preserves input paths and settings; input data must remain at those paths.
+
+Every export dialog includes an output folder, optional filename and format checkboxes. Blank single-image names use `original_scalebar`; blank distribution names use `size_distribution`. Recognized image extensions are optional. Single exports work regardless of whether the current preview shows TEM or a distribution. Source TIFFs are protected from overwrite.
 
 **Remove black footer** defaults to Yes: after reading the original scale, the separate black annotation strip is cropped off and the new scale is placed on the remaining microscopy image. This changes output height but preserves microscopy pixels and physical calibration. No/`--keep-original-footer` keeps the old strip. Images without a separate black footer are not automatically cropped; their original annotation is cleared locally with an erase box.
 
-All four left tabs scroll vertically with the wheel/trackpad or scrollbar. Load sample generates a temporary **synthetic demonstration**, not experimental measurements.
+All settings tabs scroll vertically with the wheel/trackpad or scrollbar. Load sample generates a temporary **synthetic demonstration**, not experimental measurements.
 
 ## Command line
 
@@ -77,7 +80,7 @@ connector line and inset scale-bar length are editable in the left panel.
 A blank inset scale-bar length selects a readable physical length automatically.
 The inset samples the cleaned original image before any new annotation is drawn.
 The independent nm/pixel calibration updates when the inset size changes.
-Export current / Export all include the inset in both PNG and TIFF. Original files
+TEM exports include the inset in the selected PNG and/or TIFF formats. Original files
 remain unchanged. Each image stores its own inset settings in saved projects.
 
 CLI example (coordinates refer to the image after footer removal):
@@ -95,3 +98,11 @@ In **Inset zoom**, set **Show inset scale bar** to **Yes** (default) or **No**.
 This controls only the inset label and line. It is saved per image and in projects,
 used in both preview and exported TIFF/PNG, and leaves the main scale bar setting unchanged.
 CLI: add `--inset-no-scalebar` to hide the inset scale bar.
+
+## 0.0.3 export examples
+```
+python outputs/tem_scalebar_distribution.py --tiff sample.tif --nm-per-pixel 0.5 --tem-formats png --tem-name "TEM Figure 1" --output-dir results
+python outputs/tem_scalebar_distribution.py --tiff first.tif second.tif --measure-original-bar --tem-formats png --output-dir results
+python outputs/tem_scalebar_distribution.py --csv diameters.csv --column diameter_nm --distribution-formats png --distribution-name "Size Figure 1" --output-dir results
+```
+CLI runs also save run_report.json. Desktop JSON reports are opt-in.

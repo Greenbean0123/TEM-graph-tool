@@ -31,7 +31,7 @@ def manifest(repo, assets, output, version):
                                    'format': 'exe' if ext == 'exe' else 'app-zip'}
     if set(found) != {'windows-x86_64', 'macos-arm64', 'macos-x86_64'}:
         raise ValueError('Release must include Windows x64, Mac ARM and Mac Intel')
-    payload = {'schema': 1, 'version': version, 'notes': f'TEM graph tool {version}', 'assets': found}
+    payload = {'schema': 1, 'version': version, 'notes': f'TEM graphic tool {version}: independent exports, selectable image formats and custom filenames.', 'assets': found}
     envelope = {'payload': payload, 'signature': base64.b64encode(key.sign(updater.canonical(payload))).decode()}
     for platform in found:
         updater.verify_manifest(envelope, public, '0.0.0', platform)
@@ -44,5 +44,10 @@ if __name__ == '__main__':
     parser.add_argument('--assets', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--version', required=True)
+    parser.add_argument('--checksums', action='store_true', help='Also write SHA256SUMS.txt for all installers and update packages')
     args = parser.parse_args()
     manifest(args.repo, args.assets, args.output, args.version)
+    if args.checksums:
+        files = sorted(p for p in Path(args.assets).rglob('*') if p.suffix in {'.exe', '.zip', '.dmg'})
+        text = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name for p in files)+'\n'
+        (Path(args.output).parent/'SHA256SUMS.txt').write_text(text, encoding='utf-8')
