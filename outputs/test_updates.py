@@ -15,6 +15,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import updater
 import update_installer
+import update_cleanup
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
@@ -144,6 +145,57 @@ class UpdateTests(unittest.TestCase):
     def test_current_process_is_detected(self):
         self.assertTrue(update_installer.process_alive(os.getpid()))
         self.assertFalse(update_installer.process_alive(0))
+
+    def cleanup_fixture(self):
+        import time
+        data = self.root/'data'
+        directory = data/'updates'/('a'*32)
+        directory.mkdir(parents=True)
+        target = self.root/'TEM graphic tool.app'
+        target.mkdir()
+        (target/'version').write_text('new')
+        backup = self.root/'TEM graphic tool.previous-1234abcd.app'
+        backup.mkdir()
+        (backup/'version').write_text('old')
+        health = directory/'new-app-ready'
+        health.write_text('ready')
+        (directory/'job.json').write_text(json.dumps({'target': str(target), 'health': str(health)}))
+        result = directory/'result.json'
+        result.write_text(json.dumps({'success': True, 'backup': str(backup)}))
+        os.utime(result, (time.time()-10, time.time()-10))
+        (directory/'package.zip').write_text('download')
+        (directory/'helper').mkdir()
+        (directory/'helper'/'old-program').write_text('helper')
+        return data, directory, target, backup
+
+    def test_cleanup_removes_successful_old_app_and_temporary_package(self):
+        data, directory, target, backup = self.cleanup_fixture()
+        manual = self.root/'downloaded-installer.dmg'
+        manual.write_text('user download')
+        with patch.object(updater, 'data_directory', return_value=data):
+            self.assertTrue(update_cleanup.cleanup(directory, target))
+        self.assertFalse(backup.exists())
+        self.assertFalse(directory.exists())
+        self.assertEqual((target/'version').read_text(), 'new')
+        self.assertTrue(manual.exists())
+
+    def test_cleanup_keeps_backup_until_new_app_is_ready(self):
+        data, directory, target, backup = self.cleanup_fixture()
+        (directory/'new-app-ready').unlink()
+        with patch.object(updater, 'data_directory', return_value=data):
+            self.assertFalse(update_cleanup.cleanup(directory, target))
+        self.assertTrue(backup.exists())
+        self.assertTrue((directory/'package.zip').exists())
+
+    def test_cleanup_refuses_unrelated_backup_path(self):
+        data, directory, target, backup = self.cleanup_fixture()
+        result = directory/'result.json'
+        result.write_text(json.dumps({'success': True, 'backup': str(target)}))
+        os.utime(result, (1, 1))
+        with patch.object(updater, 'data_directory', return_value=data):
+            self.assertFalse(update_cleanup.cleanup(directory, target))
+        self.assertTrue(target.exists())
+        self.assertTrue(backup.exists())
 
 
 if __name__ == '__main__':

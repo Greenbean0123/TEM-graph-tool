@@ -2,7 +2,9 @@
 
 此包包含同一套跨平台桌面程序：逐图标尺测量、在图像上拖动大比例尺、黑/白样式、粒径分布与高斯拟合、PNG/TIFF/PDF 导出、可滚动的左侧参数区。
 
-在 [GitHub Releases](https://github.com/Greenbean0123/TEM-graph-tool/releases) 下载对应架构的 Mac ZIP，解压后运行 TEM-Studio.app，无需安装 Python。Apple Silicon 与 Intel 版本均经过 GitHub 原生 macOS 构建及打包应用自检。
+在 [GitHub Releases](https://github.com/Greenbean0123/TEM-graph-tool/releases) 下载对应架构的 DMG：M 系列芯片选 arm64，Intel 芯片选 x86_64。打开 DMG，将 TEM graphic tool 拖到右边的 Applications 文件夹，复制完成后弹出磁盘映像，再从 Applications 启动。无需安装 Python。ZIP 保留供自动更新使用。
+
+自动更新成功且新版确认正常启动后，程序会清理旧版本备份、更新下载包和辅助安装程序；失败时保留备份供回滚。用户手动下载的 DMG、项目和实验数据不会被清理。
 
 下方说明适用于源码启动包与自行构建；Windows EXE 不能在 macOS 运行。
 

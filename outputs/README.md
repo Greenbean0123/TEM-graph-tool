@@ -53,6 +53,8 @@ The Updates tab checks signed manifests from the project's GitHub Releases, auto
 
 Release signing/publishing instructions are in ../PUBLISHING.md. Private keys must never be committed. User-specified update URLs still require the embedded publisher signing key.
 
+After the updated app reports a successful startup and its installer exits, old program backups and temporary update packages/helpers are cleaned automatically. Interrupted cleanup is retried on later starts. Failed updates retain their recovery files. Manually downloaded installers, projects and experimental inputs are preserved.
+
 ## Build and test
 
 Windows: `powershell -ExecutionPolicy Bypass -File outputs/Build-Windows.ps1`.
