@@ -13,9 +13,17 @@ from PIL import Image, ImageOps
 from scipy.ndimage import label, find_objects
 
 
-def parse_scale_text(lines, min_confidence=.5):
+def parse_scale_text(lines, min_confidence=.5, default_unit=None):
     values = {}
-    for item in lines:
+    eligible = [item for item in lines if item.get('confidence') is None or item['confidence'] >= min_confidence]
+    # Vision can split one label into separate "50" and "nm" observations.
+    fragments = [item['text'].strip() for item in eligible]
+    if len(fragments) == 2:
+        numbers = [s for s in fragments if re.fullmatch(r'\d+(?:[.,]\d+)?', s)]
+        units = [s for s in fragments if re.fullmatch(r'nm|[uµμ]m', s, re.I)]
+        if len(numbers) == len(units) == 1:
+            eligible = [dict(text=numbers[0]+' '+units[0])]
+    for item in eligible:
         text = item['text']
         confidence = item.get('confidence')
         if confidence is not None and confidence < min_confidence:
@@ -25,8 +33,17 @@ def parse_scale_text(lines, min_confidence=.5):
             nm = number * (1 if match[2].lower() == 'nm' else 1000)
             if math.isfinite(nm) and nm > 0:
                 values[nm] = match[0]
+    if not values and default_unit is not None:
+        text = ' '.join(item['text'] for item in eligible)
+        numbers = re.findall(r'(?<![\w.])\d+(?:[.,]\d+)?(?![\w.])', text)
+        unsupported = re.search(r'\b(?:pm|mm|cm|m)\b', text, re.I)
+        if len(numbers) == 1 and not unsupported:
+            number = float(numbers[0].replace(',', '.'))
+            nm = number * (1000 if default_unit == 'um' else 1)
+            if nm > 0 and math.isfinite(nm):
+                values[nm] = f'{numbers[0]} {default_unit} (selected unit)'
     if len(values) != 1:
-        raise ValueError('Could not read one unambiguous nm/µm scale label. Enter Original label (nm) or select a tighter original annotation box.')
+        raise ValueError('Could not read one unambiguous scale value. Enter Original label value and select its unit, or choose a tighter original annotation box.')
     nm, text = next(iter(values.items()))
     return nm, text
 
@@ -131,7 +148,7 @@ $stream.Dispose()
     return [json.loads(process.stdout)]
 
 
-def read_scale_label(array, region):
+def read_scale_label(array, region, default_unit='nm'):
     x0, y0, x1, y1 = region
     patch = Image.fromarray(array[y0:y1, x0:x1]).convert('L')
     values = np.asarray(patch)
@@ -172,7 +189,7 @@ def read_scale_label(array, region):
         else:
             raise ValueError('Automatic label reading requires macOS or Windows; enter Original label (nm) manually')
         try:
-            nm, text = parse_scale_text(lines)
+            nm, text = parse_scale_text(lines, default_unit=default_unit)
             # Vision often reports 0.5 for short scientific labels despite an
             # exact text match. Require agreement at a second rendering scale.
             if any(item.get('confidence', 1) < .8 for item in lines):
@@ -180,7 +197,7 @@ def read_scale_label(array, region):
                 patch.resize((round(patch.width*.85), round(patch.height*.85)), Image.Resampling.LANCZOS).save(alternate)
                 check_lines = mac_text(alternate) if sys.platform == 'darwin' else windows_text(alternate)
                 try:
-                    check_nm, _ = parse_scale_text(check_lines, min_confidence=.2)
+                    check_nm, _ = parse_scale_text(check_lines, min_confidence=.2, default_unit=default_unit)
                 except ValueError as e:
                     raise ValueError(f'{e} Second pass: {check_lines!r}') from e
                 if nm != check_nm:

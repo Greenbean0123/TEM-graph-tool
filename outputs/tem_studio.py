@@ -1,4 +1,4 @@
-"""TEM Studio desktop application. Run directly or use the bundled EXE."""
+"""graph tool desktop application. Run directly or use the bundled EXE."""
 import copy
 import json
 import os
@@ -11,7 +11,7 @@ from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 import tifffile
 import tem_scalebar_distribution as core
-from app_version import __version__
+from app_version import __version__, APP_NAME
 import updater
 import update_ui
 
@@ -49,7 +49,8 @@ class ScrollableTab(ttk.Frame):
 class TEMStudio(tk.Tk):
     def __init__(self, enable_updates=True):
         super().__init__()
-        self.title(f'TEM Studio {__version__} · Scale Bar & Size Distribution')
+        self.title(f'{APP_NAME} {__version__} · Scale Bar & Size Distribution')
+        self.tk.call('tk', 'appname', APP_NAME)
         self.enable_updates = enable_updates
         self.geometry('1400x920')
         self.minsize(900, 500)
@@ -68,6 +69,12 @@ class TEMStudio(tk.Tk):
         self.drag = None
         self.csv_path = None
         self.vars = {}
+        self.vars['match_original'] = tk.StringVar(value='true')
+        self.app_icon = ImageTk.PhotoImage(Image.open(Path(__file__).with_name('assets')/'graph-tool-icon.png').resize((64, 64), Image.Resampling.LANCZOS))
+        try:
+            self.iconphoto(True, self.app_icon)
+        except tk.TclError:
+            pass  # macOS also uses the application's bundled ICNS.
         style = ttk.Style(self)
         style.theme_use('clam')
         style.configure('TFrame', background='#f3f5f8')
@@ -103,13 +110,15 @@ class TEMStudio(tk.Tk):
         else:
             widget = ttk.Entry(row, textvariable=v, width=22)
         widget.pack(side='right', fill='x', expand=True)
-        v.trace_add('write', self.changed)
+        v.trace_add('write', lambda *_: self.changed(key))
         return widget
 
     def build(self):
         header = ttk.Frame(self, padding=(18, 10))
         header.pack(fill='x')
-        ttk.Label(header, text='TEM Studio', font=('Segoe UI', 20, 'bold')).pack(side='left')
+        self.header_icon = ImageTk.PhotoImage(Image.open(Path(__file__).with_name('assets')/'graph-tool-icon.png').resize((42, 42), Image.Resampling.LANCZOS))
+        ttk.Label(header, image=self.header_icon).pack(side='left', padx=(0, 8))
+        ttk.Label(header, text=APP_NAME, font=('Segoe UI', 20, 'bold')).pack(side='left')
         ttk.Label(header, text='Scale bar editor  /  Size distribution', foreground='#65758b').pack(side='left', padx=20)
         ttk.Button(header, text='Export current…', style='Accent.TButton', command=self.export_current).pack(side='right')
         ttk.Button(header, text='Export all TEM…', command=self.export_all).pack(side='right', padx=8)
@@ -128,7 +137,7 @@ class TEMStudio(tk.Tk):
         updates = ScrollableTab(tabs)
         self.scroll_tabs.append(updates)
         tabs.add(updates, text='Updates')
-        ttk.Label(updates.content, text='TEM Studio ' + __version__, font=('Segoe UI', 14, 'bold')).pack(anchor='w', pady=10)
+        ttk.Label(updates.content, text=APP_NAME + ' ' + __version__, font=('Segoe UI', 14, 'bold')).pack(anchor='w', pady=10)
         ttk.Label(updates.content, text='Check GitHub releases in the background. Signed updates are installed after confirmation. Your current image settings are restored after restart.', wraplength=370).pack(anchor='w', pady=8)
         if self.enable_updates:
             update_ui.attach(self, updates.content, __version__, before_restart=self.save_update_session)
@@ -144,7 +153,8 @@ class TEMStudio(tk.Tk):
         self.listbox.bind('<<ListboxSelect>>', self.select_file)
         ttk.Label(data, text='Calibration is stored separately for every image.', wraplength=375).pack(anchor='w', pady=(0, 10))
         self.field(data, 'Calibration mode', 'cal_mode', 'Auto measure bar', ['Auto measure bar', 'Manual bar width', 'nm per pixel'])
-        self.field(data, 'Original label (nm)', 'original_bar_nm')
+        self.field(data, 'Original label value', 'original_bar_nm')
+        self.field(data, 'Original label unit', 'original_unit', 'nm', ['nm', 'µm'])
         self.field(data, 'Original width (px)', 'original_bar_px')
         self.field(data, 'nm per pixel', 'nm_per_pixel')
         ttk.Label(data, text='Auto mode reads the original nm/µm label and measures its bar. Physical metadata takes priority. Verify the detected values below.', wraplength=375, foreground='#65758b').pack(anchor='w', pady=6)
@@ -224,9 +234,15 @@ class TEMStudio(tk.Tk):
         if self.current:
             self.settings[str(self.current)] = self.image_state()
 
-    def changed(self, *_):
+    def changed(self, key=None, *_):
         if self.loading:
             return
+        if key == 'bar_nm':
+            self.vars['match_original'].set('true' if not self.vars['bar_nm'].get().strip() else 'false')
+        elif key in ('original_unit', 'original_bar_nm') and self.vars['match_original'].get() == 'true':
+            self.loading = True
+            self.vars['bar_nm'].set('')
+            self.loading = False
         self.store()
         if self.pending:
             self.after_cancel(self.pending)
@@ -260,12 +276,12 @@ class TEMStudio(tk.Tk):
             return
         self.store()
         self.current = self.files[indices[0]]
-        defaults = dict(cal_mode='Auto measure bar', original_bar_nm='', original_bar_px='', nm_per_pixel='',
+        defaults = dict(cal_mode='Auto measure bar', original_bar_nm='', original_unit='nm', match_original='true', original_bar_px='', nm_per_pixel='',
                         erase_box='', background='Auto', original_corner='bottom-right', bar_nm='', target_width='500',
                         color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
                         label_position='above', gap='12', bar_x='', bar_y='')
         self.loading = True
-        for key, value in self.settings.get(str(self.current), defaults).items():
+        for key, value in dict(defaults, **self.settings.get(str(self.current), {})).items():
             if key in self.vars:
                 self.vars[key].set(value)
         self.loading = False
@@ -316,7 +332,12 @@ class TEMStudio(tk.Tk):
             value = s.get(key, '').strip()
             setattr(a, key, core.positive(value) if value else None)
         a.target_width = a.target_width or 500
-        a.match_original_bar = a.bar_nm is None
+        a.match_original_bar = s.get('match_original', 'true') == 'true' or a.bar_nm is None
+        if a.match_original_bar:
+            a.bar_nm = None
+        a.ocr_default_unit = 'um' if s.get('original_unit') == 'µm' else 'nm'
+        if a.original_bar_nm is not None and a.ocr_default_unit == 'um':
+            a.original_bar_nm *= 1000
         mode = s['cal_mode']
         a.measure_original_bar = mode == 'Auto measure bar'
         if mode == 'nm per pixel':
@@ -359,11 +380,12 @@ class TEMStudio(tk.Tk):
             self.loading = True
             try:
                 if r.get('original_bar_nm') is not None:
-                    self.vars['original_bar_nm'].set(f"{r['original_bar_nm']:g}")
+                    factor = 1000 if self.vars['original_unit'].get() == 'µm' else 1
+                    self.vars['original_bar_nm'].set(f"{r['original_bar_nm']/factor:g}")
                 if r.get('measured_original_bar_pixels') is not None:
                     self.vars['original_bar_px'].set(str(r['measured_original_bar_pixels']))
                 self.vars['nm_per_pixel'].set(f"{r['nm_per_pixel']:.12g}")
-                if not self.vars['bar_nm'].get().strip():
+                if self.vars['match_original'].get() == 'true' or not self.vars['bar_nm'].get().strip():
                     self.vars['bar_nm'].set(f"{r['bar_nm']:g}")
             finally:
                 self.loading = False
@@ -371,6 +393,8 @@ class TEMStudio(tk.Tk):
             self.info.set(f"{self.current.name}  |  {r['bar_nm']:g} nm = {r['bar_pixels']} px  |  {r['nm_per_pixel']:.8g} nm/px\n"
                           f"Original: {str(r.get('original_bar_nm') or 'metadata')} nm / {r['measured_original_bar_pixels'] or 'manual / metadata'} px · Drag the new bar to move it")
             self.status.set('Preview updated · New bar is overlaid on the image · Source file unchanged')
+            if 'selected unit' in (r.get('recognized_scale_text') or ''):
+                self.status.set('Number recognized; unit text unreadable. Using selected '+self.vars['original_unit'].get()+'. Please verify the unit.')
             self.draw_preview()
         except Exception as e:
             self.report = None
@@ -386,6 +410,8 @@ class TEMStudio(tk.Tk):
         self.loading = True
         try:
             self.vars['cal_mode'].set('Auto measure bar')
+            if self.vars['match_original'].get() == 'true':
+                self.vars['bar_nm'].set('')
             for key in ('original_bar_nm', 'original_bar_px', 'nm_per_pixel'):
                 self.vars[key].set('')
         finally:
@@ -704,6 +730,8 @@ def packaged_self_test(report_path):
         app = TEMStudio(enable_updates=False)
         app.withdraw()
         app.update()
+        if not app.title().startswith(APP_NAME) or app.app_icon.width() != 64 or app.header_icon.width() != 42:
+            raise RuntimeError('Application name or icon not applied')
         app.geometry('1000x550')
         app.deiconify()
         app.update()
@@ -771,7 +799,8 @@ def packaged_self_test(report_path):
             if r['N'] != 7 or abs(r['mean_nm']-55) > 1e-9:
                 raise RuntimeError('Incorrect distribution statistics')
             checks.append(mode + ': PNG + PDF + statistics passed')
-        result = {'success': True, 'version': __version__, 'frozen': bool(getattr(sys, 'frozen', False)),
+        result = {'success': True, 'version': __version__, 'application_name': APP_NAME,
+                  'application_icon': 'loaded', 'frozen': bool(getattr(sys, 'frozen', False)),
                   'small_window_scroll': 'passed at 1000x550',
                   'signed_update_verification': 'passed',
                   'mac_scale_ocr': mac_ocr,

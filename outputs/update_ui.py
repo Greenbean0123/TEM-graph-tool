@@ -5,6 +5,7 @@ from threading import Thread
 import json
 import time
 import updater
+from app_version import APP_NAME
 
 
 def attach(root, parent, version, before_restart=None):
@@ -68,13 +69,13 @@ def attach(root, parent, version, before_restart=None):
                     busy(False)
                     status.configure(text=value)
                     if state.get('manual', True):
-                        messagebox.showerror('TEM-Studio update', value, parent=root)
+                        messagebox.showerror(APP_NAME + ' update', value, parent=root)
                 elif kind == 'checked':
                     if value is None:
                         busy(False)
                         status.configure(text=f'Version {version} is up to date.')
                         if state.get('manual'):
-                            messagebox.showinfo('TEM-Studio update', 'You are using the latest version.', parent=root)
+                            messagebox.showinfo(APP_NAME + ' update', 'You are using the latest version.', parent=root)
                     else:
                         state['release'] = value
                         question = (f"Version {value['version']} is available.\n\n{value['notes'][:3000]}\n\n"

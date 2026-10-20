@@ -224,7 +224,7 @@ def run(job_path):
             from tkinter import messagebox
             window = tk.Tk()
             window.withdraw()
-            messagebox.showerror('TEM-Studio update', f'{error}\n\nDetails: {result_path.parent}', parent=window)
+            messagebox.showerror('graph tool update', f'{error}\n\nDetails: {result_path.parent}', parent=window)
             window.destroy()
         except Exception:
             pass

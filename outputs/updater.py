@@ -165,7 +165,7 @@ def installed_target():
             raise ValueError('The running program is not a standalone Mac app.')
         target = app
         if '/Volumes/' in str(target):
-            raise ValueError('Move TEM-Studio to Applications before installing updates; do not run it from the DMG.')
+            raise ValueError('Move graph tool to Applications before installing updates; do not run it from the DMG.')
     elif sys.platform == 'win32':
         target = executable
     else:

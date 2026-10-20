@@ -1,6 +1,6 @@
-# TEM graph tool
+# graph tool
 
-TEM Studio is a desktop application for clean TEM scale bars and particle-size distribution plots on Windows and macOS.
+graph tool is a desktop application for clean TEM scale bars and particle-size distribution plots on Windows and macOS.
 
 - Calibrate each TIFF independently from physical metadata or its original scale bar.
 - Overlay a large, draggable scale bar with adjustable position, nm length, font size, thickness and black/white color.

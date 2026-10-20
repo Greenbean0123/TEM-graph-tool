@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-from app_version import __version__
+from app_version import __version__, APP_NAME
 
 
 def main():
@@ -18,6 +18,8 @@ def main():
     args = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--windowed',
             '--hidden-import', 'matplotlib.backends.backend_pdf', '--hidden-import', 'cryptography',
             '--add-data', str(root/'update_config.json') + os.pathsep + '.',
+            '--add-data', str(root/'assets') + os.pathsep + 'assets',
+            '--icon', str(root/'assets'/('graph-tool.icns' if sys.platform == 'darwin' else 'graph-tool.ico')),
             '--name', 'TEM-Studio', '--distpath', str(native), '--workpath', 'build', '--specpath', 'build']
     args += ['--onedir', '--osx-bundle-identifier', 'org.temstudio.app'] if sys.platform == 'darwin' else ['--onefile']
     subprocess.run(args + [str(root/'tem_studio.py')], check=True)
@@ -29,6 +31,8 @@ def main():
         info = plistlib.loads(plist.read_bytes())
         info['CFBundleShortVersionString'] = __version__
         info['CFBundleVersion'] = __version__
+        info['CFBundleName'] = APP_NAME
+        info['CFBundleDisplayName'] = APP_NAME
         plist.write_bytes(plistlib.dumps(info))
         subprocess.run(['codesign', '--force', '--deep', '--sign', '-', str(app)], check=True)
         executable = app/'Contents/MacOS/TEM-Studio'

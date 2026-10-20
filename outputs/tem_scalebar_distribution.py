@@ -116,7 +116,7 @@ def redraw(path, args, render_only=False):
         measured_pixels = best[1]-best[0]
         if not args.original_bar_nm:
             from scale_ocr import read_scale_label
-            args.original_bar_nm, recognized_text, label_reader = read_scale_label(a, region)
+            args.original_bar_nm, recognized_text, label_reader = read_scale_label(a, region, default_unit=getattr(args, 'ocr_default_unit', 'nm'))
         args.original_bar_px = measured_pixels
     if scale is None:
         scale = args.nm_per_pixel
@@ -268,6 +268,7 @@ def create_parser():
     p.add_argument('--nm-per-pixel', type=positive)
     p.add_argument('--original-bar-nm', type=positive)
     p.add_argument('--original-bar-px', type=positive, help='Measured original bar width in pixels')
+    p.add_argument('--ocr-default-unit', choices=['nm', 'um'], default='nm', help='Unit used for an unambiguous OCR number when unit text is unreadable')
     p.add_argument('--measure-original-bar', action='store_true', help='Measure original bar per image and read its nm/um text with OS OCR when --original-bar-nm is omitted')
     p.add_argument('--measure-box', type=rectangle, help='Original bar-only search rectangle; otherwise detect separate footer')
     p.add_argument('--image-config', type=Path, help='JSON mapping image filename to per-image option overrides (underscore keys)')
@@ -314,7 +315,7 @@ def main():
         for path in args.tiff or []:
             local = copy.copy(args)
             for key, value in config.get(path.name, {}).items():
-                if key not in {'nm_per_pixel', 'original_bar_nm', 'original_bar_px', 'measure_original_bar', 'measure_box', 'erase_box', 'bar_nm', 'match_original_bar', 'corner', 'original_corner', 'color', 'background', 'font_size', 'thickness', 'margin', 'gap', 'label_position', 'target_width'}:
+                if key not in {'nm_per_pixel', 'original_bar_nm', 'original_bar_px', 'measure_original_bar', 'measure_box', 'erase_box', 'bar_nm', 'match_original_bar', 'ocr_default_unit', 'corner', 'original_corner', 'color', 'background', 'font_size', 'thickness', 'margin', 'gap', 'label_position', 'target_width'}:
                     raise ValueError(f'Unsupported per-image option: {key}')
                 setattr(local, key, value)
             images.append(redraw(path, local))

@@ -1,10 +1,10 @@
-# TEM Studio / TEM graph tool
+# graph tool
 
 A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian fits. No particle detection or diameter extraction is performed.
 
 ## Desktop workflow
 
-1. **Data & calibration**: Add TIFF images. Auto mode reads the original nm/µm text using the operating system's OCR and measures the bar independently for each image. Detected original length, pixel width and nm/pixel are filled into the left panel. Verify these values. Re-detect original scale bar retries recognition; manual label/width and nm/pixel remain available. Draw an erase box covering the original label and bar when needed.
+1. **Data & calibration**: Add TIFF images. Auto mode reads the original nm/µm text using the operating system's OCR and measures the bar independently for each image. Detected original length, pixel width and nm/pixel are filled into the left panel. **Original label unit** defaults to nm and also supports µm. Correct the number or unit manually when needed. If the OCR reads the number but not its unit, the selected unit is used and a verification message is displayed. Re-detect original scale bar retries recognition; manual label/width and nm/pixel remain available. Draw an erase box covering the original label and bar when needed.
 2. **Scale bar**: Change nm length, black/white color, thickness, font size, corner and margin. Drag the new bar in the preview for custom positioning. X/Y are the top-left of the combined label and bar. The bar is overlaid directly on the image without expanding its canvas.
 3. **Distribution**: Open CSV, select a named diameter column in nm, choose bins or bin width and Count/Frequency. Preview then Export current for PNG and optional PDF.
 4. Export all TEM uses each image's independent calibration and appearance. Save/Open project preserves input paths and settings; input data must remain at those paths.
@@ -37,7 +37,7 @@ Example coordinates must be adapted to the actual image. `--measure-box x0,y0,x1
 
 ## Calibration and statistics
 
-Explicit physical metadata is preferred: OME PhysicalSizeX/Y, ImageJ units and XResolution, or JSON `nm_per_pixel`. Ordinary TIFF print resolution is ignored. Unsupported vendor-specific metadata needs manual calibration. Original-bar detection requires at least three repeated high-contrast horizontal scan lines; ambiguous layouts need manual measurement or a restricted search box. macOS uses the system Vision framework for local text recognition, with no cloud service or model download. Windows uses its built-in OCR when available. Low-confidence, missing-unit or conflicting nm/µm labels are rejected; enter the actual label manually if automatic reading fails.
+Explicit physical metadata is preferred: OME PhysicalSizeX/Y, ImageJ units and XResolution, or JSON `nm_per_pixel`. Ordinary TIFF print resolution is ignored. Unsupported vendor-specific metadata needs manual calibration. Original-bar detection requires at least three repeated high-contrast horizontal scan lines; ambiguous layouts need manual measurement or a restricted search box. macOS uses the system Vision framework for local text recognition, with no cloud service or model download. Windows uses its built-in OCR when available. Split text observations such as `50` and `nm` are combined. Unclear/conflicting numbers are rejected; a single clear number with an unreadable unit uses the unit selected by the user (default nm). CLI equivalent: `--ocr-default-unit nm` or `um`.
 
 New images default to the original detected nm length: a 50 nm original yields a 50 nm new bar, retaining its calibrated pixel width while increasing text size and line thickness. Users can change the new length afterward. When only physical metadata is available and no original nm label is known, a suitable neat value is selected for the image width. Original and newly drawn nm values are displayed separately. CLI users can opt into this behavior with `--match-original-bar`.
 

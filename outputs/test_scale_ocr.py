@@ -31,6 +31,12 @@ class ScaleOCRTests(unittest.TestCase):
         for text, expected in [('50 nm', 50), ('200nm', 200), ('0.5 µm', 500), ('1 um', 1000)]:
             self.assertEqual(scale_ocr.parse_scale_text([{'text': text, 'confidence': .99}])[0], expected)
         self.assertEqual(scale_ocr.parse_scale_text([{'text': '50 nm', 'confidence': .5}])[0], 50)
+        self.assertEqual(scale_ocr.parse_scale_text([{'text': '50', 'confidence': 1}, {'text': 'nm', 'confidence': 1}])[0], 50)
+        self.assertEqual(scale_ocr.parse_scale_text([{'text': 'nm'}, {'text': '50'}])[0], 50)
+        self.assertEqual(scale_ocr.parse_scale_text([{'text': '50'}], default_unit='nm')[0], 50)
+        self.assertEqual(scale_ocr.parse_scale_text([{'text': '0.05'}], default_unit='um')[0], 50)
+        with self.assertRaises(ValueError):
+            scale_ocr.parse_scale_text([{'text': '50 100'}], default_unit='nm')
         for lines in [[{'text': '50 nm', 'confidence': .2}], [{'text': '50'}], [{'text': '50 nm / 200 nm'}], [{'text': '500 m'}]]:
             with self.assertRaises(ValueError):
                 scale_ocr.parse_scale_text(lines)
@@ -62,6 +68,11 @@ class ScaleOCRTests(unittest.TestCase):
                 self.assertEqual(app.vars['bar_nm'].get(), '50')
                 self.assertEqual(app.report['bar_pixels'], 151)
                 self.assertAlmostEqual(float(app.vars['nm_per_pixel'].get()), 50/151)
+                app.vars['original_unit'].set('µm')
+                app.vars['original_bar_nm'].set('0.05')
+                app.refresh_tem(quiet=True)
+                self.assertAlmostEqual(float(app.vars['nm_per_pixel'].get()), 50/151)
+                self.assertEqual(app.vars['bar_nm'].get(), '50')
             finally:
                 app.close()
 
