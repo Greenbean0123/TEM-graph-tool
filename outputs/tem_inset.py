@@ -37,10 +37,9 @@ def compose(image, source, nm_per_pixel, roi, width=500, position=None,
         raise ValueError('Inset scale bar does not fit; reduce inset bar length or enlarge inset')
     white = 255 if image.mode == 'L' else (255,)*3
     black = 0 if image.mode == 'L' else (0,)*3
-    ink, background = (white, black) if color == 'white' else (black, white)
+    ink = white if color == 'white' else black
     bx, by = width-margin-pixels, height-margin-thickness
     tx = width-margin-tw
-    d.rectangle((min(bx, tx)-5, by-th-margin-5, width-margin+5, height-margin+5), fill=background)
     d.rectangle((bx, by, bx+pixels-1, by+thickness-1), fill=ink)
     d.text((tx-tb[0], by-th-margin-tb[1]), label, font=font, fill=ink)
     out = image.copy()
