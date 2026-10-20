@@ -2,7 +2,9 @@
 
 此包包含同一套跨平台桌面程序：逐图标尺测量、在图像上拖动大比例尺、黑/白样式、粒径分布与高斯拟合、PNG/TIFF/PDF 导出、可滚动的左侧参数区。
 
-这是源码运行包与 Mac 打包工具，**不是已构建/签名的 .app**。当前开发环境为 Windows，尚未在真实 Mac 上验证。Windows EXE 不能在 macOS 运行。
+在 [GitHub Releases](https://github.com/Greenbean0123/TEM-graph-tool/releases) 下载对应架构的 Mac ZIP，解压后运行 TEM-Studio.app，无需安装 Python。Apple Silicon 与 Intel 版本均经过 GitHub 原生 macOS 构建及打包应用自检。
+
+下方说明适用于源码启动包与自行构建；Windows EXE 不能在 macOS 运行。
 
 ## 运行
 
