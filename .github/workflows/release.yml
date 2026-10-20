@@ -46,12 +46,14 @@ jobs:
         run: |
           python outputs/test_updates.py
           python outputs/test_tem_studio.py
+          python outputs/test_scale_ocr.py
           python outputs/build_app.py
       - name: Test and build Mac
         if: runner.os == 'macOS'
         run: |
           python3 outputs/test_updates.py
           python3 outputs/test_tem_studio.py
+          python3 outputs/test_scale_ocr.py
           python3 outputs/build_app.py
       - uses: actions/upload-artifact@v7
         with:

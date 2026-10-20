@@ -4,7 +4,7 @@ A desktop tool for TEM scale-bar redrawing and diameter histograms with Gaussian
 
 ## Desktop workflow
 
-1. **Data & calibration**: Add TIFF images. Read the original nm label separately for each image. Use automatic bar-width measurement in a separate uniform footer, drag between the original bar endpoints, or enter nm/pixel. Draw an erase box covering the original label and bar when needed.
+1. **Data & calibration**: Add TIFF images. Auto mode reads the original nm/µm text using the operating system's OCR and measures the bar independently for each image. Detected original length, pixel width and nm/pixel are filled into the left panel. Verify these values. Re-detect original scale bar retries recognition; manual label/width and nm/pixel remain available. Draw an erase box covering the original label and bar when needed.
 2. **Scale bar**: Change nm length, black/white color, thickness, font size, corner and margin. Drag the new bar in the preview for custom positioning. X/Y are the top-left of the combined label and bar. The bar is overlaid directly on the image without expanding its canvas.
 3. **Distribution**: Open CSV, select a named diameter column in nm, choose bins or bin width and Count/Frequency. Preview then Export current for PNG and optional PDF.
 4. Export all TEM uses each image's independent calibration and appearance. Save/Open project preserves input paths and settings; input data must remain at those paths.
@@ -37,7 +37,9 @@ Example coordinates must be adapted to the actual image. `--measure-box x0,y0,x1
 
 ## Calibration and statistics
 
-Explicit physical metadata is preferred: OME PhysicalSizeX/Y, ImageJ units and XResolution, or JSON `nm_per_pixel`. Ordinary TIFF print resolution is ignored. Unsupported vendor-specific metadata needs manual calibration. Original-bar detection requires at least three repeated high-contrast horizontal scan lines; ambiguous layouts need manual measurement or a restricted search box. It does not read nm labels using OCR.
+Explicit physical metadata is preferred: OME PhysicalSizeX/Y, ImageJ units and XResolution, or JSON `nm_per_pixel`. Ordinary TIFF print resolution is ignored. Unsupported vendor-specific metadata needs manual calibration. Original-bar detection requires at least three repeated high-contrast horizontal scan lines; ambiguous layouts need manual measurement or a restricted search box. macOS uses the system Vision framework for local text recognition, with no cloud service or model download. Windows uses its built-in OCR when available. Low-confidence, missing-unit or conflicting nm/µm labels are rejected; enter the actual label manually if automatic reading fails.
+
+New images default to automatic new-bar length selection instead of a fixed 500 nm, so a 50 nm calibration does not cause an oversized bar outside the image. The default target width remains 500 px. Original and newly drawn nm values are displayed separately.
 
 New pixel width is rounded from nm/calibration with error at most 0.5 px. Automatic nm choices are 10/20/50/100/200/500. Only single-page uint8 grayscale/RGB TIFF is supported; other formats are rejected rather than silently converted. Raw TIFFs are never overwritten. Derived `_scalebar.tif/.png` files may be replaced on repeated export to the same folder.
 

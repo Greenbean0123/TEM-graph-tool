@@ -147,7 +147,8 @@ class TEMStudio(tk.Tk):
         self.field(data, 'Original label (nm)', 'original_bar_nm')
         self.field(data, 'Original width (px)', 'original_bar_px')
         self.field(data, 'nm per pixel', 'nm_per_pixel')
-        ttk.Label(data, text='Physical metadata takes priority when available. Read the original nm label for EACH image.', wraplength=375, foreground='#65758b').pack(anchor='w', pady=6)
+        ttk.Label(data, text='Auto mode reads the original nm/µm label and measures its bar. Physical metadata takes priority. Verify the detected values below.', wraplength=375, foreground='#65758b').pack(anchor='w', pady=6)
+        ttk.Button(data, text='Re-detect original scale bar', command=self.redetect_scale).pack(fill='x', pady=4)
         ttk.Button(data, text='Measure original bar with two points', command=lambda: self.tool('measure')).pack(fill='x', pady=4)
         self.field(data, 'Erase box (x0,y0,x1,y1)', 'erase_box')
         self.field(data, 'Erase background', 'background', 'Auto', ['Auto', 'Black', 'White'])
@@ -160,7 +161,7 @@ class TEMStudio(tk.Tk):
         ttk.Button(presets, text='Open project…', command=self.open_project).pack(side='right')
 
         ttk.Label(layout, text='Large, readable scale bar', font=('Segoe UI', 13, 'bold')).pack(anchor='w', pady=(0, 8))
-        self.field(layout, 'Length (nm; blank=auto)', 'bar_nm', '500')
+        self.field(layout, 'Length (nm; blank=auto)', 'bar_nm', '')
         self.field(layout, 'Auto target width (px)', 'target_width', '500')
         self.field(layout, 'Color', 'color', 'white', ['white', 'black'])
         self.field(layout, 'Line thickness (px)', 'thickness', '18')
@@ -260,7 +261,7 @@ class TEMStudio(tk.Tk):
         self.store()
         self.current = self.files[indices[0]]
         defaults = dict(cal_mode='Auto measure bar', original_bar_nm='', original_bar_px='', nm_per_pixel='',
-                        erase_box='', background='Auto', original_corner='bottom-right', bar_nm='500', target_width='500',
+                        erase_box='', background='Auto', original_corner='bottom-right', bar_nm='', target_width='500',
                         color='white', thickness='18', font_size='64', corner='bottom-right', margin='110',
                         label_position='above', gap='12', bar_x='', bar_y='')
         self.loading = True
@@ -349,10 +350,23 @@ class TEMStudio(tk.Tk):
         self.view = 'tem'
         self.mode.set('move')
         try:
+            if self.vars['cal_mode'].get() == 'Auto measure bar' and not self.vars['original_bar_nm'].get().strip():
+                self.status.set('Reading original scale label and measuring its pixel width…')
+                self.update_idletasks()
             self.preview_image, self.report = core.redraw(self.current, self.get_args(), render_only=True)
             r = self.report
+            self.loading = True
+            try:
+                if r.get('original_bar_nm') is not None:
+                    self.vars['original_bar_nm'].set(f"{r['original_bar_nm']:g}")
+                if r.get('measured_original_bar_pixels') is not None:
+                    self.vars['original_bar_px'].set(str(r['measured_original_bar_pixels']))
+                self.vars['nm_per_pixel'].set(f"{r['nm_per_pixel']:.12g}")
+            finally:
+                self.loading = False
+            self.store()
             self.info.set(f"{self.current.name}  |  {r['bar_nm']:g} nm = {r['bar_pixels']} px  |  {r['nm_per_pixel']:.8g} nm/px\n"
-                          f"Original measured width: {r['measured_original_bar_pixels'] or 'manual / metadata'} px · Drag the bar to move it")
+                          f"Original: {str(r.get('original_bar_nm') or 'metadata')} nm / {r['measured_original_bar_pixels'] or 'manual / metadata'} px · Drag the new bar to move it")
             self.status.set('Preview updated · New bar is overlaid on the image · Source file unchanged')
             self.draw_preview()
         except Exception as e:
@@ -362,6 +376,18 @@ class TEMStudio(tk.Tk):
             except Exception:
                 pass
             self.fail(e, quiet)
+
+    def redetect_scale(self):
+        if not self.current:
+            return
+        self.loading = True
+        try:
+            self.vars['cal_mode'].set('Auto measure bar')
+            for key in ('original_bar_nm', 'original_bar_px', 'nm_per_pixel'):
+                self.vars[key].set('')
+        finally:
+            self.loading = False
+        self.refresh_tem(quiet=False)
 
     def show_original(self):
         if not self.current:
@@ -709,6 +735,23 @@ def packaged_self_test(report_path):
         updater.verify_manifest(envelope, public, __version__)
         if not updater.bundled_config().get('public_key'):
             raise RuntimeError('Bundled updater public key missing')
+        mac_ocr = 'not run on this platform'
+        if sys.platform == 'darwin':
+            import numpy as np
+            from PIL import ImageDraw, ImageFont
+            array = np.full((800, 1024), 145, dtype=np.uint8)
+            array[700:] = 0
+            array[745:753, 420:571] = 255
+            image = Image.fromarray(array)
+            ImageDraw.Draw(image).text((595, 714), '50 nm', font=ImageFont.load_default(size=44), fill=255)
+            source = folder/'native_50nm_scale.tif'
+            tifffile.imwrite(source, np.asarray(image))
+            app.load_files([str(source)])
+            if app.report is None:
+                raise RuntimeError('Native scale OCR failed: '+app.status.get())
+            if app.vars['original_bar_nm'].get() != '50' or app.vars['original_bar_px'].get() != '151':
+                raise RuntimeError('Native 50 nm auto-import did not populate calibration')
+            mac_ocr = 'passed: 50 nm / 151 px, auto-import fields populated'
         for mode in ('count', 'frequency'):
             app.vars['y_mode'].set(mode)
             r = core.distribution(app.dist_args(folder))
@@ -726,6 +769,7 @@ def packaged_self_test(report_path):
         result = {'success': True, 'version': __version__, 'frozen': bool(getattr(sys, 'frozen', False)),
                   'small_window_scroll': 'passed at 1000x550',
                   'signed_update_verification': 'passed',
+                  'mac_scale_ocr': mac_ocr,
                   'preview': 'passed with PDF option selected', 'checks': checks}
     except Exception as e:
         import traceback

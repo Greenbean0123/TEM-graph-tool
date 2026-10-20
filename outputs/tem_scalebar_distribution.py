@@ -76,6 +76,8 @@ def redraw(path, args, render_only=False):
     if a.dtype != np.uint8 or a.ndim not in (2, 3) or (a.ndim == 3 and a.shape[2] != 3):
         raise ValueError('Use uint8 grayscale or RGB TIFF; other bit depths require explicit conversion')
     measured_pixels = None
+    recognized_text = None
+    label_reader = None
     if scale is None and args.measure_original_bar:
         gray = a if a.ndim == 2 else a.mean(axis=2)
         region = args.measure_box
@@ -86,7 +88,13 @@ def redraw(path, args, render_only=False):
                     region = (0, y, a.shape[1], a.shape[0])
                     break
         if region is None:
-            raise ValueError('Cannot safely locate original bar: supply --measure-box or --original-bar-px')
+            if args.erase_box:
+                region = args.erase_box
+            else:
+                rw, rh = min(args.erase_width, a.shape[1]), min(args.erase_height, a.shape[0])
+                rx = a.shape[1]-rw if 'right' in args.original_corner else 0
+                ry = a.shape[0]-rh if 'bottom' in args.original_corner else 0
+                region = (rx, ry, rx+rw, ry+rh)
         rx0, ry0, rx1, ry1 = region
         if not (0 <= rx0 < rx1 <= a.shape[1] and 0 <= ry0 < ry1 <= a.shape[0]):
             raise ValueError('Measurement region outside image')
@@ -107,7 +115,8 @@ def redraw(path, args, render_only=False):
         best = max(repeated, key=lambda r: r[1]-r[0])
         measured_pixels = best[1]-best[0]
         if not args.original_bar_nm:
-            raise ValueError('Pixel width measured, but --original-bar-nm is required (read label for each image)')
+            from scale_ocr import read_scale_label
+            args.original_bar_nm, recognized_text, label_reader = read_scale_label(a, region)
         args.original_bar_px = measured_pixels
     if scale is None:
         scale = args.nm_per_pixel
@@ -152,7 +161,10 @@ def redraw(path, args, render_only=False):
             expanded.paste(im, (0, 0))
             im, h = expanded, new_h
             draw = ImageDraw.Draw(im)
-    length = args.bar_nm or min((10, 20, 50, 100, 200, 500), key=lambda n: abs(n / scale - args.target_width))
+    choices = [n for n in (10, 20, 50, 100, 200, 500) if n/scale <= w-2*args.margin]
+    if args.bar_nm is None and not choices:
+        raise ValueError('No automatic nm length fits this image; enter a smaller custom Length (nm)')
+    length = args.bar_nm or min(choices, key=lambda n: abs(n / scale - args.target_width))
     pixels = int(math.floor(length / scale + .5))
     if pixels < 1:
         raise ValueError('Bar rounds to less than one pixel')
@@ -185,6 +197,8 @@ def redraw(path, args, render_only=False):
         raise ValueError('Output must differ from input')
     report = {'input': str(path), 'nm_per_pixel': scale, 'calibration_source': source,
             'measured_original_bar_pixels': measured_pixels,
+            'original_bar_nm': args.original_bar_nm, 'recognized_scale_text': recognized_text,
+            'label_reader': label_reader,
             'erase_box': roi, 'bar_nm': length, 'bar_pixels': pixels,
             'ideal_bar_pixels': length/scale, 'bar_box': [bx, by, bx+pixels, by+args.thickness],
             'annotation_box': [left, top, left+bw, top+bh], 'output_size': [w, h],
@@ -253,7 +267,7 @@ def create_parser():
     p.add_argument('--nm-per-pixel', type=positive)
     p.add_argument('--original-bar-nm', type=positive)
     p.add_argument('--original-bar-px', type=positive, help='Measured original bar width in pixels')
-    p.add_argument('--measure-original-bar', action='store_true', help='Measure bar pixels separately in each image; requires its actual --original-bar-nm')
+    p.add_argument('--measure-original-bar', action='store_true', help='Measure original bar per image and read its nm/um text with OS OCR when --original-bar-nm is omitted')
     p.add_argument('--measure-box', type=rectangle, help='Original bar-only search rectangle; otherwise detect separate footer')
     p.add_argument('--image-config', type=Path, help='JSON mapping image filename to per-image option overrides (underscore keys)')
     p.add_argument('--bar-nm', type=positive, help='Explicit new length; otherwise select 10/20/50/100/200/500 nm')
