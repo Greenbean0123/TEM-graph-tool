@@ -23,7 +23,7 @@
 
 双击 `Build-Mac.command`，或终端运行 `bash Build-Mac.command`。
 
-输出 `dist/TEM-Studio.app` 与带版本及处理器架构名称的 ZIP。构建脚本会实际运行新 .app 的自检，检查小窗口滚动、Distribution 预览、Count/Frequency 的 PNG/PDF 导出、统计结果与更新验证。自检通过后才生成分发 ZIP，报告在 `dist/packaged-self-test.json`。
+输出 `dist/TEM-Studio.app`、自动更新 ZIP 和可拖入 Applications 的 DMG。构建脚本会实际运行新 .app 的自检，检查启动进度、小窗口滚动、Distribution 预览、Count/Frequency 的 PNG/PDF 导出、统计结果与更新验证。DMG 生成后会挂载验证布局与 Applications 链接，并复制应用后启动检查。
 
 在 Apple Silicon Mac 上用原生 ARM Python 构建 ARM 版本；Intel Mac 用 Intel Python 构建 Intel 版本。`.app` 为本机构建，未经 Apple Developer ID 签名或公证。收件人的系统可能需要在“系统设置 → 隐私与安全性”允许打开。
 

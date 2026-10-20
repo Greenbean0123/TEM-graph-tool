@@ -82,6 +82,7 @@ def main():
             run(copied/executable, '--self-test', report, timeout=240)
             result = json.loads(report.read_text())
             assert result['success'] and result['frozen'] and result['application_name'] == APP_NAME
+            assert result.get('startup_progress', {}).get('completed')
             result['dmg'] = dict(app_name=installed_name, architecture=args.arch,
                 applications_shortcut='verified', finder_icon_layout='verified',
                 installed_copy_launch='passed', sha256=hashlib.sha256(destination.read_bytes()).hexdigest())

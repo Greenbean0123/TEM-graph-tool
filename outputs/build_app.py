@@ -22,7 +22,7 @@ def main():
             '--icon', str(root/'assets'/('graph-tool.icns' if sys.platform == 'darwin' else 'graph-tool.ico')),
             '--name', 'TEM-Studio', '--distpath', str(native), '--workpath', 'build', '--specpath', 'build']
     args += ['--onedir', '--osx-bundle-identifier', 'org.temstudio.app'] if sys.platform == 'darwin' else ['--onefile']
-    subprocess.run(args + [str(root/'tem_studio.py')], check=True)
+    subprocess.run(args + [str(root/'startup_launcher.py')], check=True)
     dist = root/'dist'
     arch = {'amd64': 'x86_64', 'aarch64': 'arm64'}.get(platform.machine().lower(), platform.machine().lower())
     if sys.platform == 'darwin':
@@ -48,8 +48,11 @@ def main():
     result = json.loads(report.read_text(encoding='utf-8'))
     if not result.get('success') or not result.get('frozen'):
         raise RuntimeError(f'Packaged self-test failed: {result}')
+    if not result.get('startup_progress', {}).get('completed'):
+        raise RuntimeError('Startup progress did not complete')
     if sys.platform == 'darwin':
         subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(app), str(asset)], check=True)
+        subprocess.run([sys.executable, str(root/'build_dmg.py'), '--app', str(app), '--arch', arch], check=True)
     else:
         shutil.copy2(executable, asset)
     print(f'Built and verified {asset}')

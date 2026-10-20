@@ -17,7 +17,7 @@ All four left tabs scroll vertically with the wheel/trackpad or scrollbar. Load 
 
 ```sh
 python -m pip install -r outputs/requirements.txt
-python outputs/tem_studio.py
+python outputs/startup_launcher.py
 python outputs/tem_scalebar_distribution.py --tiff sample.tif --csv diameters.csv --column diameter_nm --measure-original-bar --original-bar-nm 200 --bar-nm 500 --font-size 64 --thickness 18 --margin 110 --pdf
 ```
 
