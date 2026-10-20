@@ -10,6 +10,7 @@ import re
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import updater
+from app_version import APP_NAME
 
 
 def manifest(repo, assets, output, version):
@@ -31,7 +32,7 @@ def manifest(repo, assets, output, version):
                                    'format': 'exe' if ext == 'exe' else 'app-zip'}
     if set(found) != {'windows-x86_64', 'macos-arm64', 'macos-x86_64'}:
         raise ValueError('Release must include Windows x64, Mac ARM and Mac Intel')
-    payload = {'schema': 1, 'version': version, 'notes': f'TEM graphic tool {version}: independent exports, selectable image formats and custom filenames.', 'assets': found}
+    payload = {'schema': 1, 'version': version, 'notes': f'{APP_NAME} {version}: vector distribution overlays, adjustable colors / opacity / labels, stage progress, dark mode and smoother divider preview.', 'assets': found}
     envelope = {'payload': payload, 'signature': base64.b64encode(key.sign(updater.canonical(payload))).decode()}
     for platform in found:
         updater.verify_manifest(envelope, public, '0.0.0', platform)
